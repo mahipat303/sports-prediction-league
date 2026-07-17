@@ -9,6 +9,7 @@ const tabs = [
   { href: "/admin/import", label: "Excel Import" },
   { href: "/admin/fixtures", label: "Fixtures" },
   { href: "/admin/results", label: "Results" },
+  { href: "/admin/insights", label: "Insights" },
   { href: "/admin/teams", label: "Teams" },
   { href: "/admin/players", label: "Players" },
   { href: "/admin/users", label: "Users" },
