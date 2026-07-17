@@ -1,0 +1,276 @@
+// Sports Prediction League — Prisma schema
+// PostgreSQL (Neon/Supabase/local). Tables are created with `prisma db push`
+// — see README. For quick local SQLite dev, switch provider to "sqlite".
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum PlayerCategory {
+  BRONZE
+  SILVER
+  GOLD
+  PLATINUM
+}
+
+enum FixtureStatus {
+  SCHEDULED
+  LOCKED
+  LIVE
+  COMPLETED
+  CANCELLED
+}
+
+enum Confidence {
+  LOW
+  MEDIUM
+  HIGH
+}
+
+enum NotificationType {
+  UPCOMING_MATCH
+  PREDICTION_CLOSING
+  RESULT_DECLARED
+  LEADERBOARD_CHANGE
+  ACHIEVEMENT
+  BONUS_AWARDED
+}
+
+model User {
+  id            String    @id @default(cuid())
+  name          String
+  email         String    @unique
+  emailVerified DateTime?
+  verificationCode    String? // 6-digit email verification code (hashed not needed for this scale)
+  verificationExpires DateTime?
+  image         String?
+  passwordHash  String?
+  role          Role      @default(USER)
+  isGuest       Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+
+  predictions   Prediction[]
+  pointsHistory PointsHistory[]
+  notifications Notification[]
+  achievements  UserAchievement[]
+  leaderboard   LeaderboardEntry?
+}
+
+model Team {
+  id              String  @id @default(cuid())
+  name            String  @unique
+  shortName       String  @unique
+  logoUrl         String?
+  color           String  @default("#6366f1") // theme color for team-colored UI
+  ownerName       String
+  totalBudget     Float   @default(0)
+  remainingBudget Float   @default(0)
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  players       Player[]
+  side1Fixtures Fixture[] @relation("Side1Team")
+  side2Fixtures Fixture[] @relation("Side2Team")
+  auctionEvents AuctionEvent[]
+}
+
+model Sport {
+  id        String   @id @default(cuid())
+  name      String   @unique
+  icon      String? // emoji or icon name
+  createdAt DateTime @default(now())
+
+  fixtures    Fixture[]
+  assignments PlayerSportAssignment[]
+}
+
+model Player {
+  id           String         @id @default(cuid())
+  name         String         @unique
+  gender       String?
+  avatarUrl    String?
+  category     PlayerCategory
+  isCaptain    Boolean        @default(false)
+  auctionPrice Float          @default(0)
+  ratings      String? // JSON: self-assessed skill per sport from the auction sheet
+  teamId       String?
+  team         Team?          @relation(fields: [teamId], references: [id], onDelete: SetNull)
+  createdAt    DateTime       @default(now())
+  updatedAt    DateTime       @updatedAt
+
+  assignments   PlayerSportAssignment[]
+  fixturePlayers FixturePlayer[]
+  auctionEvents  AuctionEvent[]
+}
+
+model PlayerSportAssignment {
+  id       String         @id @default(cuid())
+  playerId String
+  sportId  String
+  category PlayerCategory
+  player   Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  sport    Sport  @relation(fields: [sportId], references: [id], onDelete: Cascade)
+
+  @@unique([playerId, sportId])
+}
+
+model AuctionEvent {
+  id        String   @id @default(cuid())
+  playerId  String
+  teamId    String
+  price     Float
+  round     Int      @default(1)
+  createdAt DateTime @default(now())
+  player    Player @relation(fields: [playerId], references: [id], onDelete: Cascade)
+  team      Team   @relation(fields: [teamId], references: [id], onDelete: Cascade)
+}
+
+// A fixture is a match between two "sides". A side is a player, a doubles
+// pair, or a placeholder like "Winner Group A" until earlier rounds resolve.
+model Fixture {
+  id             String         @id @default(cuid())
+  sportId        String
+  matchCategory  String // e.g. "Male Singles", "Mix Double"
+  stage          String? // e.g. "Group A Initial", "Grand Final"
+  side1Label     String // display label, e.g. "Parth" or "Chintan/Purvang"
+  side2Label     String
+  side1TeamId    String? // resolved owning team, when all side players share one
+  side2TeamId    String?
+  isPlaceholder  Boolean        @default(false) // participants not yet decided
+  winnerSide     Int? // 1 or 2
+  scoreSummary   String?
+  winnerPoints   Float          @default(0) // Sports Day points for winning team/player
+  runnerUpPoints Float          @default(0)
+  startTime      DateTime
+  lockTime       DateTime // predictions close at this time
+  status         FixtureStatus  @default(SCHEDULED)
+  venue          String?
+  isUpset        Boolean        @default(false) // winner was the underdog
+  underdogSide   Int? // admin-designated underdog side (1 or 2, optional)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+
+  sport       Sport @relation(fields: [sportId], references: [id], onDelete: Cascade)
+  side1Team   Team? @relation("Side1Team", fields: [side1TeamId], references: [id], onDelete: SetNull)
+  side2Team   Team? @relation("Side2Team", fields: [side2TeamId], references: [id], onDelete: SetNull)
+  players     FixturePlayer[]
+  predictions Prediction[]
+
+  @@index([startTime])
+  @@index([status])
+}
+
+model FixturePlayer {
+  id        String  @id @default(cuid())
+  fixtureId String
+  playerId  String
+  side      Int // 1 or 2
+  fixture   Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+  player    Player  @relation(fields: [playerId], references: [id], onDelete: Cascade)
+
+  @@unique([fixtureId, playerId])
+}
+
+model Prediction {
+  id            String     @id @default(cuid())
+  userId        String
+  fixtureId     String
+  predictedSide Int // 1 or 2
+  confidence    Confidence @default(LOW)
+  isCorrect     Boolean?
+  pointsAwarded Float      @default(0)
+  createdAt     DateTime   @default(now())
+  updatedAt     DateTime   @updatedAt
+
+  user    User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+  fixture Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, fixtureId])
+  @@index([fixtureId])
+}
+
+model PointsHistory {
+  id          String   @id @default(cuid())
+  userId      String
+  fixtureId   String?
+  points      Float
+  reason      String // e.g. "Correct prediction", "Daily streak bonus", "Admin bonus"
+  createdAt   DateTime @default(now())
+  user        User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model LeaderboardEntry {
+  id                 String   @id @default(cuid())
+  userId             String   @unique
+  totalPoints        Float    @default(0)
+  correctPredictions Int      @default(0)
+  wrongPredictions   Int      @default(0)
+  currentStreak      Int      @default(0)
+  bestStreak         Int      @default(0)
+  updatedAt          DateTime @updatedAt
+  user               User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([totalPoints])
+}
+
+model Notification {
+  id        String           @id @default(cuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  link      String?
+  read      Boolean          @default(false)
+  createdAt DateTime         @default(now())
+  user      User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, read])
+}
+
+model Achievement {
+  id          String @id @default(cuid())
+  code        String @unique // e.g. "FIRST_BLOOD", "HOT_STREAK_5"
+  name        String
+  description String
+  icon        String
+
+  users UserAchievement[]
+}
+
+model UserAchievement {
+  id            String   @id @default(cuid())
+  userId        String
+  achievementId String
+  earnedAt      DateTime @default(now())
+  user          User        @relation(fields: [userId], references: [id], onDelete: Cascade)
+  achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, achievementId])
+}
+
+// Admin-configurable scoring values, stored as key/value.
+model Setting {
+  key   String @id
+  value String
+}
+
+model Tournament {
+  id        String   @id @default(cuid())
+  name      String
+  eventDate DateTime
+  isActive  Boolean  @default(true)
+  createdAt DateTime @default(now())
+}
