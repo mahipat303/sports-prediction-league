@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { redirect } from "next/navigation";
+import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { formatDateTime, cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -22,6 +24,11 @@ type Search = {
 };
 
 export default async function InsightsPage(props: { searchParams: Promise<Search> }) {
+  // Defence-in-depth: guard in the page itself (not only the layout), so no
+  // prediction data is ever queried or streamed for non-admins.
+  const session = await auth();
+  if (session?.user?.role !== "ADMIN") redirect("/");
+
   const sp = await props.searchParams;
   const tab = sp.tab === "champion" ? "champion" : "matches";
 
