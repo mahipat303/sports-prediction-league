@@ -55,6 +55,36 @@ export async function submitPrediction(formData: FormData) {
   return { success: true };
 }
 
+export async function submitChampionPrediction(formData: FormData) {
+  const session = await requireUser();
+  const teamId = String(formData.get("teamId") ?? "");
+  if (!teamId) return { error: "Pick a team" };
+
+  const tournament = await prisma.tournament.findFirst({ where: { isActive: true } });
+  if (!tournament) return { error: "No active tournament" };
+  if (tournament.championTeamId) {
+    return { error: "The champion has already been decided" };
+  }
+  const lock = tournament.championLockTime ?? tournament.eventDate;
+  if (lock <= new Date()) {
+    return { error: "Champion predictions are locked" };
+  }
+
+  const team = await prisma.team.findUnique({ where: { id: teamId } });
+  if (!team) return { error: "Unknown team" };
+
+  await prisma.championPrediction.upsert({
+    where: {
+      tournamentId_userId: { tournamentId: tournament.id, userId: session.user.id },
+    },
+    create: { tournamentId: tournament.id, userId: session.user.id, teamId },
+    update: { teamId },
+  });
+
+  revalidatePath("/");
+  return { success: true };
+}
+
 const ALLOWED_DOMAIN = (process.env.ALLOWED_EMAIL_DOMAIN ?? "opshub.com")
   .toLowerCase()
   .replace(/^@/, "");

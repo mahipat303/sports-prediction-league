@@ -36,8 +36,9 @@ export default async function LeaderboardPage() {
             return (
               <Card
                 key={entry.id}
+                style={{ animationDelay: `${idx * 80}ms` }}
                 className={cn(
-                  "text-center",
+                  "animate-in-up text-center",
                   rank === 0 && "border-amber-500/50 bg-amber-500/5 sm:-translate-y-2"
                 )}
               >
@@ -84,8 +85,9 @@ export default async function LeaderboardPage() {
                     return (
                       <tr
                         key={entry.id}
+                        style={{ animationDelay: `${Math.min(i, 12) * 40}ms` }}
                         className={cn(
-                          "border-b border-border/30 transition-colors hover:bg-accent/50",
+                          "animate-in-up border-b border-border/30 transition-colors hover:bg-accent/50",
                           i < 3 && "bg-amber-500/5",
                           isMe && "bg-primary/10"
                         )}

@@ -1,8 +1,10 @@
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
 import { getFixtures } from "@/lib/fixtures";
+import { getSettings } from "@/lib/scoring";
 import { MatchCard } from "@/components/match-card";
 import { FixtureFilters } from "@/components/fixture-filters";
+import { RulesDialog } from "@/components/rules-dialog";
 import { Card, CardContent } from "@/components/ui/card";
 
 export const dynamic = "force-dynamic";
@@ -12,10 +14,23 @@ export default async function FixturesPage(props: {
 }) {
   const searchParams = await props.searchParams;
   const session = await auth();
-  const [fixtures, sports] = await Promise.all([
+  const [fixtures, sports, settings] = await Promise.all([
     getFixtures(session?.user?.id),
     prisma.sport.findMany({ orderBy: { name: "asc" } }),
+    getSettings(),
   ]);
+  const rulesValues = {
+    pointsCorrect: settings.POINTS_CORRECT,
+    pointsUpset: settings.POINTS_UPSET,
+    medMult: settings.CONFIDENCE_MEDIUM_MULT,
+    highMult: settings.CONFIDENCE_HIGH_MULT,
+    penMed: settings.PENALTY_MEDIUM,
+    penHigh: settings.PENALTY_HIGH,
+    streak: settings.STREAK_BONUS,
+    perfectDay: settings.PERFECT_DAY_BONUS,
+    championBonus: settings.CHAMPION_BONUS,
+    lockMinutes: settings.LOCK_MINUTES_BEFORE_START,
+  };
 
   const categories = [...new Set(fixtures.map((f) => f.matchCategory))].sort();
 
@@ -35,11 +50,14 @@ export default async function FixturesPage(props: {
 
   return (
     <div className="space-y-6">
-      <div>
-        <h1 className="text-2xl font-bold">Fixtures</h1>
-        <p className="text-sm text-muted-foreground">
-          All Sports Day matches. Predictions lock automatically before each match.
-        </p>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold">Fixtures</h1>
+          <p className="text-sm text-muted-foreground">
+            All Sports Day matches. Predictions lock automatically before each match.
+          </p>
+        </div>
+        <RulesDialog values={rulesValues} />
       </div>
 
       <FixtureFilters sports={sports.map((s) => s.name)} categories={categories} />

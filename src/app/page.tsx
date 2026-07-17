@@ -1,8 +1,9 @@
 import Link from "next/link";
-import { Trophy, TrendingUp, Target, ArrowRight, Sparkles } from "lucide-react";
+import { Trophy, TrendingUp, Target, ArrowRight, Sparkles, BookOpen } from "lucide-react";
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { getFixtures } from "@/lib/fixtures";
+import { getSettings } from "@/lib/scoring";
 import { accuracy, cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -10,6 +11,8 @@ import { Button } from "@/components/ui/button";
 import { Avatar } from "@/components/ui/avatar";
 import { Countdown } from "@/components/countdown";
 import { MatchCard } from "@/components/match-card";
+import { ChampionPrediction } from "@/components/champion-prediction";
+import { RulesContent } from "@/components/rules";
 
 export const dynamic = "force-dynamic";
 
@@ -17,7 +20,7 @@ export default async function HomePage() {
   const session = await auth();
   const userId = session?.user?.id;
 
-  const [tournament, allFixtures, topEntries, teams] = await Promise.all([
+  const [tournament, allFixtures, topEntries, teams, settings, myChampion] = await Promise.all([
     prisma.tournament.findFirst({ where: { isActive: true } }),
     getFixtures(userId),
     prisma.leaderboardEntry.findMany({
@@ -25,8 +28,35 @@ export default async function HomePage() {
       take: 5,
       include: { user: true },
     }),
-    prisma.team.findMany({ include: { _count: { select: { players: true } } } }),
+    prisma.team.findMany({
+      include: {
+        _count: { select: { players: true, championPredictions: true } },
+      },
+    }),
+    getSettings(),
+    userId
+      ? prisma.championPrediction.findFirst({
+          where: { userId, tournament: { isActive: true } },
+        })
+      : null,
   ]);
+
+  const totalChampionPicks = teams.reduce(
+    (sum, t) => sum + t._count.championPredictions,
+    0
+  );
+  const rulesValues = {
+    pointsCorrect: settings.POINTS_CORRECT,
+    pointsUpset: settings.POINTS_UPSET,
+    medMult: settings.CONFIDENCE_MEDIUM_MULT,
+    highMult: settings.CONFIDENCE_HIGH_MULT,
+    penMed: settings.PENALTY_MEDIUM,
+    penHigh: settings.PENALTY_HIGH,
+    streak: settings.STREAK_BONUS,
+    perfectDay: settings.PERFECT_DAY_BONUS,
+    championBonus: settings.CHAMPION_BONUS,
+    lockMinutes: settings.LOCK_MINUTES_BEFORE_START,
+  };
 
   const now = new Date();
   const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
@@ -60,8 +90,12 @@ export default async function HomePage() {
               Prediction League
             </h1>
             <p className="mt-2 max-w-md text-sm text-white/80 sm:text-base">
-              Predict match winners, earn virtual points, and climb the office
-              leaderboard. No real money — just bragging rights. 🏆
+              Predict match winners, earn virtual points, compete with your
+              colleagues, and win exciting prizes! 🏆
+            </p>
+            <p className="mt-1.5 max-w-md text-xs font-medium text-white/90 sm:text-sm">
+              🥇 Top 3 predictors take home special prizes — on top of office
+              bragging rights.
             </p>
             <div className="mt-4 flex gap-3">
               <Link href="/fixtures">
@@ -144,8 +178,29 @@ export default async function HomePage() {
           )}
         </section>
 
-        {/* Leaderboard + teams preview */}
+        {/* Champion + leaderboard + teams preview */}
         <section className="space-y-4">
+          {teams.length > 0 && (
+            <ChampionPrediction
+              teams={teams.map((t) => ({
+                id: t.id,
+                name: t.name,
+                shortName: t.shortName,
+                color: t.color,
+                logoUrl: t.logoUrl,
+                pickCount: t._count.championPredictions,
+              }))}
+              myTeamId={myChampion?.teamId ?? null}
+              championTeamId={tournament?.championTeamId ?? null}
+              lockTime={
+                (tournament?.championLockTime ?? tournament?.eventDate)?.toISOString() ?? null
+              }
+              bonus={settings.CHAMPION_BONUS}
+              isLoggedIn={Boolean(userId)}
+              totalPicks={totalChampionPicks}
+            />
+          )}
+
           <Card>
             <CardHeader className="pb-3">
               <CardTitle className="flex items-center gap-2">
@@ -222,6 +277,20 @@ export default async function HomePage() {
           </Card>
         </section>
       </div>
+
+      {/* Rules */}
+      <section id="rules" className="scroll-mt-20">
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <BookOpen className="h-5 w-5 text-primary" /> How the Prediction League Works
+            </CardTitle>
+          </CardHeader>
+          <CardContent>
+            <RulesContent v={rulesValues} />
+          </CardContent>
+        </Card>
+      </section>
     </div>
   );
 }

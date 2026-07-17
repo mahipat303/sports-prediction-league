@@ -3,7 +3,7 @@
 import { useState, useTransition } from "react";
 import { motion } from "framer-motion";
 import confetti from "canvas-confetti";
-import { Clock, Lock, Trophy, Zap, HelpCircle } from "lucide-react";
+import { Clock, Lock, Zap, HelpCircle, Radio } from "lucide-react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -17,8 +17,11 @@ export interface MatchCardSide {
   teamShortName: string | null;
   color: string | null;
   players: string[];
+  specialBadge: string | null;
   pickCount: number;
 }
+
+type ConfidencePreview = Record<string, { correct: number; wrong: number }>;
 
 export interface MatchCardFixture {
   id: string;
@@ -32,9 +35,11 @@ export interface MatchCardFixture {
   startTime: string;
   lockTime: string;
   venue: string | null;
+  liveUrl: string | null;
   scoreSummary: string | null;
   winnerSide: number | null;
   winnerPoints: number;
+  confidencePreview: ConfidencePreview;
   side1: MatchCardSide;
   side2: MatchCardSide;
   myPrediction: {
@@ -47,6 +52,15 @@ export interface MatchCardFixture {
 }
 
 const FALLBACK_COLORS = ["#6366f1", "#ec4899"];
+const WINNER_EMOJIS = ["🏆", "😎", "🎉", "🔥", "👑", "💪"];
+const LOSER_EMOJIS = ["😭", "🤡", "💀", "😵", "😅", "🙈"];
+
+// Deterministic emoji per fixture+side so it doesn't reshuffle on every render.
+function pickEmoji(list: string[], seed: string) {
+  let h = 0;
+  for (let i = 0; i < seed.length; i++) h = (h * 31 + seed.charCodeAt(i)) | 0;
+  return list[Math.abs(h) % list.length];
+}
 
 function SideButton({
   side,
@@ -66,7 +80,9 @@ function SideButton({
   onPick: (side: number) => void;
 }) {
   const isSelected = selected === n;
-  const isWinner = fixture.status === "COMPLETED" && fixture.winnerSide === n;
+  const isDone = fixture.status === "COMPLETED";
+  const isWinner = isDone && fixture.winnerSide === n;
+  const isLoser = isDone && fixture.winnerSide != null && fixture.winnerSide !== n;
   const pct = totalPicks ? Math.round((side.pickCount / totalPicks) * 100) : 0;
   const color = side.color ?? FALLBACK_COLORS[n - 1];
   const clickable = fixture.isOpen && fixture.isLoggedIn && !pending;
@@ -79,7 +95,8 @@ function SideButton({
         "group relative flex flex-1 flex-col items-center gap-2 rounded-xl border-2 p-3 text-center transition-all",
         isSelected ? "border-transparent shadow-lg" : "border-border/60 bg-background/30",
         clickable && "cursor-pointer hover:scale-[1.02] hover:shadow-md",
-        isWinner && "ring-2 ring-emerald-500"
+        isWinner && "ring-2 ring-emerald-500",
+        isLoser && "opacity-60"
       )}
       style={
         isSelected
@@ -88,9 +105,19 @@ function SideButton({
       }
     >
       {isWinner && (
-        <Badge variant="success" className="absolute -top-2.5 right-2">
-          <Trophy className="h-3 w-3" /> Winner
-        </Badge>
+        <motion.span
+          initial={{ scale: 0, rotate: -20 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 400, damping: 12 }}
+          className="absolute -top-3 right-1 text-xl drop-shadow"
+        >
+          {pickEmoji(WINNER_EMOJIS, fixture.id + n)}
+        </motion.span>
+      )}
+      {isLoser && (
+        <span className="absolute -top-3 right-1 text-lg opacity-80">
+          {pickEmoji(LOSER_EMOJIS, fixture.id + n)}
+        </span>
       )}
       {fixture.isPlaceholder && !side.teamName ? (
         <span className="flex h-12 w-12 items-center justify-center rounded-full bg-muted">
@@ -101,6 +128,11 @@ function SideButton({
       )}
       <div>
         <p className="text-sm font-semibold leading-tight">{side.label}</p>
+        {side.specialBadge && (
+          <span className="mt-0.5 inline-block rounded-full bg-gradient-to-r from-amber-400/20 to-pink-400/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-300">
+            {side.specialBadge}
+          </span>
+        )}
         {side.teamName && (
           <p className="mt-0.5 text-[11px] font-medium" style={{ color }}>
             {side.teamName}
@@ -110,9 +142,12 @@ function SideButton({
       {totalPicks > 0 && (
         <div className="w-full">
           <div className="h-1.5 w-full overflow-hidden rounded-full bg-muted">
-            <div
-              className="h-full rounded-full transition-all"
-              style={{ width: `${pct}%`, backgroundColor: color }}
+            <motion.div
+              className="h-full rounded-full"
+              style={{ backgroundColor: color }}
+              initial={{ width: 0 }}
+              animate={{ width: `${pct}%` }}
+              transition={{ duration: 0.5, ease: "easeOut" }}
             />
           </div>
           <p className="mt-0.5 text-[10px] text-muted-foreground">{pct}% picked</p>
@@ -136,6 +171,7 @@ export function MatchCard({ fixture }: { fixture: MatchCardFixture }) {
   const isDone = fixture.status === "COMPLETED";
   const isLive = fixture.status === "LIVE";
   const totalPicks = fixture.side1.pickCount + fixture.side2.pickCount;
+  const preview = fixture.confidencePreview[confidence] ?? { correct: 0, wrong: 0 };
 
   function save(side: number, level = confidence) {
     setSelected(side);
@@ -215,29 +251,55 @@ export function MatchCard({ fixture }: { fixture: MatchCardFixture }) {
             />
           </div>
 
+          {/* Watch Live link */}
+          {fixture.liveUrl && (isLive || isOpen || !isDone) && (
+            <a href={fixture.liveUrl} target="_blank" rel="noopener noreferrer" className="mt-3 block">
+              <Button
+                className="w-full gap-2 bg-red-600 text-white hover:bg-red-700"
+                size="sm"
+              >
+                <Radio className="h-4 w-4 animate-pulse" /> Watch Live
+              </Button>
+            </a>
+          )}
+
           {isOpen && fixture.isLoggedIn && (
-            <div className="mt-3 flex flex-wrap items-center gap-2">
-              <span className="flex items-center gap-1 text-xs text-muted-foreground">
-                <Zap className="h-3 w-3" /> Confidence:
-              </span>
-              {Object.entries(CONFIDENCE_META).map(([level, meta]) => (
-                <Button
-                  key={level}
-                  size="sm"
-                  variant={confidence === level ? "default" : "outline"}
-                  className="h-7 text-xs"
-                  onClick={() => {
-                    setConfidence(level);
-                    if (selected) save(selected, level);
-                  }}
-                  disabled={pending}
-                >
-                  {meta.label} {meta.multiplier}
-                </Button>
-              ))}
-              {message && (
-                <span className="text-xs font-medium text-emerald-500">{message}</span>
-              )}
+            <div className="mt-3 space-y-2">
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="flex items-center gap-1 text-xs text-muted-foreground">
+                  <Zap className="h-3 w-3" /> Confidence:
+                </span>
+                {Object.entries(CONFIDENCE_META).map(([level, meta]) => (
+                  <Button
+                    key={level}
+                    size="sm"
+                    variant={confidence === level ? "default" : "outline"}
+                    className="h-7 text-xs"
+                    onClick={() => {
+                      setConfidence(level);
+                      if (selected) save(selected, level);
+                    }}
+                    disabled={pending}
+                  >
+                    {meta.label} {meta.multiplier}
+                  </Button>
+                ))}
+                {message && (
+                  <span className="text-xs font-medium text-emerald-500">{message}</span>
+                )}
+              </div>
+              <p className="text-[11px] text-muted-foreground">
+                {CONFIDENCE_META[confidence]?.label} confidence:{" "}
+                <span className="font-semibold text-emerald-500">+{preview.correct}</span> if right
+                {preview.wrong < 0 ? (
+                  <>
+                    {" · "}
+                    <span className="font-semibold text-red-500">{preview.wrong}</span> if wrong
+                  </>
+                ) : (
+                  <> · no penalty if wrong</>
+                )}
+              </p>
             </div>
           )}
 
@@ -256,7 +318,9 @@ export function MatchCard({ fixture }: { fixture: MatchCardFixture }) {
             >
               {fixture.myPrediction.isCorrect
                 ? `You predicted right! +${fixture.myPrediction.points} pts 🎉`
-                : "Your prediction missed this time"}
+                : fixture.myPrediction.points < 0
+                  ? `Ouch — that miss cost you ${fixture.myPrediction.points} pts 😵`
+                  : "Your prediction missed this time 🙈"}
             </p>
           )}
         </CardContent>

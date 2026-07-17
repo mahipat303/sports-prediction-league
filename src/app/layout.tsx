@@ -3,6 +3,7 @@ import { Geist, Geist_Mono } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import { auth } from "@/lib/auth";
 import { Navbar } from "@/components/navbar";
+import { WelcomePopup } from "@/components/welcome-popup";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -41,6 +42,7 @@ export default async function RootLayout({
         />
         <div className="app-backdrop" />
         <SessionProvider session={session}>
+          {session?.user && <WelcomePopup name={session.user.name ?? ""} />}
           <Navbar session={session} />
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
             {children}

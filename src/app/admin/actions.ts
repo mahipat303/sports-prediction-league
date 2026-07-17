@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
-import { evaluateFixture, recomputeLeaderboardEntry, getSettings, DEFAULT_SETTINGS, type SettingKey } from "@/lib/scoring";
+import { evaluateFixture, evaluateChampionPredictions, recomputeLeaderboardEntry, getSettings, DEFAULT_SETTINGS, type SettingKey } from "@/lib/scoring";
 import { importWorkbook, type ImportResult } from "@/lib/excel-import";
 import { NotificationType, PlayerCategory } from "@prisma/client";
 
@@ -91,6 +91,7 @@ const fixtureSchema = z.object({
   side2Label: z.string().min(1).max(80),
   startTime: z.string().min(1),
   venue: z.string().optional(),
+  liveUrl: z.string().url().optional().or(z.literal("")),
   winnerPoints: z.coerce.number().min(0).default(0),
 });
 
@@ -104,6 +105,7 @@ export async function createFixture(formData: FormData) {
     side2Label: formData.get("side2Label"),
     startTime: formData.get("startTime"),
     venue: formData.get("venue") || undefined,
+    liveUrl: formData.get("liveUrl") || "",
     winnerPoints: formData.get("winnerPoints") || 0,
   });
   if (!parsed.success) { console.warn("Invalid fixture data"); return; }
@@ -126,8 +128,24 @@ export async function createFixture(formData: FormData) {
       startTime,
       lockTime: new Date(startTime.getTime() - settings.LOCK_MINUTES_BEFORE_START * 60_000),
       venue: data.venue ?? null,
+      liveUrl: data.liveUrl || null,
       winnerPoints: data.winnerPoints,
     },
+  });
+  revalidateAll();
+  return;
+}
+
+/** Set or clear a fixture's live stream / meeting link. */
+export async function setFixtureLiveUrl(formData: FormData) {
+  await requireAdmin();
+  const fixtureId = String(formData.get("fixtureId") ?? "");
+  const raw = String(formData.get("liveUrl") ?? "").trim();
+  if (!fixtureId) { console.warn("Missing fixture"); return; }
+  if (raw && !/^https?:\/\//i.test(raw)) { console.warn("Invalid URL"); return; }
+  await prisma.fixture.update({
+    where: { id: fixtureId },
+    data: { liveUrl: raw || null },
   });
   revalidateAll();
   return;
@@ -268,11 +286,37 @@ export async function setTournament(formData: FormData) {
   const name = String(formData.get("name") ?? "Sports Day").trim();
   const eventDate = new Date(String(formData.get("eventDate") ?? ""));
   if (isNaN(eventDate.getTime())) { console.warn("Invalid date"); return; }
+  const rawLock = String(formData.get("championLockTime") ?? "");
+  const championLockTime = rawLock ? new Date(rawLock) : eventDate;
 
+  // Preserve an existing champion pick / lock if we're just updating the same event.
+  const existing = await prisma.tournament.findFirst({ where: { isActive: true } });
   await prisma.tournament.updateMany({ data: { isActive: false } });
   await prisma.tournament.create({
-    data: { name, eventDate, isActive: true },
+    data: {
+      name,
+      eventDate,
+      isActive: true,
+      championLockTime: isNaN(championLockTime.getTime()) ? eventDate : championLockTime,
+      championTeamId: existing?.championTeamId ?? null,
+    },
   });
+  revalidateAll();
+  return;
+}
+
+// ---------- Declare tournament champion ----------
+export async function setChampion(formData: FormData) {
+  await requireAdmin();
+  const teamId = String(formData.get("teamId") ?? "");
+  const tournament = await prisma.tournament.findFirst({ where: { isActive: true } });
+  if (!tournament) { console.warn("No active tournament"); return; }
+
+  await prisma.tournament.update({
+    where: { id: tournament.id },
+    data: { championTeamId: teamId || null },
+  });
+  if (teamId) await evaluateChampionPredictions(tournament.id);
   revalidateAll();
   return;
 }

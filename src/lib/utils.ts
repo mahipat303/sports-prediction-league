@@ -55,11 +55,11 @@ export const CATEGORY_META: Record<
 
 export const CONFIDENCE_META: Record<
   string,
-  { label: string; multiplier: string; className: string }
+  { label: string; multiplier: string; risk: string; className: string }
 > = {
-  LOW: { label: "Low", multiplier: "1×", className: "text-muted-foreground" },
-  MEDIUM: { label: "Medium", multiplier: "1.5×", className: "text-blue-500" },
-  HIGH: { label: "High", multiplier: "2×", className: "text-purple-500" },
+  LOW: { label: "Low", multiplier: "1×", risk: "no risk", className: "text-muted-foreground" },
+  MEDIUM: { label: "Medium", multiplier: "1.5×", risk: "small penalty", className: "text-blue-500" },
+  HIGH: { label: "High", multiplier: "2×", risk: "bigger penalty", className: "text-purple-500" },
 };
 
 export function accuracy(correct: number, wrong: number): number {

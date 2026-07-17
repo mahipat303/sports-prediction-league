@@ -5,11 +5,16 @@ import { Confidence, NotificationType } from "@prisma/client";
 export const DEFAULT_SETTINGS = {
   POINTS_CORRECT: 10,
   POINTS_UPSET: 15,
-  POINTS_WRONG: 0,
+  // Penalties for a wrong prediction, by confidence. Stored as positive
+  // numbers and subtracted. Higher confidence = higher risk.
+  PENALTY_LOW: 0,
+  PENALTY_MEDIUM: 5,
+  PENALTY_HIGH: 10,
   STREAK_BONUS: 5, // awarded per day the user predicted at least one match correctly
   PERFECT_DAY_BONUS: 20,
   CONFIDENCE_MEDIUM_MULT: 1.5,
   CONFIDENCE_HIGH_MULT: 2,
+  CHAMPION_BONUS: 50, // bonus for correctly predicting the tournament winner
   LOCK_MINUTES_BEFORE_START: 5,
 } as const;
 
@@ -39,6 +44,36 @@ function confidenceMultiplier(
   }
 }
 
+/** Penalty applied for a wrong prediction at a given confidence (positive). */
+function confidencePenalty(
+  confidence: Confidence,
+  settings: Record<SettingKey, number>
+): number {
+  switch (confidence) {
+    case "HIGH":
+      return settings.PENALTY_HIGH;
+    case "MEDIUM":
+      return settings.PENALTY_MEDIUM;
+    default:
+      return settings.PENALTY_LOW;
+  }
+}
+
+/** Preview the points a confidence level yields for a given base — used by the UI. */
+export function scorePreview(base: number, settings: Record<SettingKey, number>) {
+  return {
+    LOW: { correct: Math.round(base), wrong: -settings.PENALTY_LOW },
+    MEDIUM: {
+      correct: Math.round(base * settings.CONFIDENCE_MEDIUM_MULT),
+      wrong: -settings.PENALTY_MEDIUM,
+    },
+    HIGH: {
+      correct: Math.round(base * settings.CONFIDENCE_HIGH_MULT),
+      wrong: -settings.PENALTY_HIGH,
+    },
+  };
+}
+
 /**
  * Evaluate all predictions for a completed fixture, award points, update the
  * leaderboard, and notify users. Called when the admin enters a result.
@@ -65,7 +100,7 @@ export async function evaluateFixture(fixtureId: string) {
       ? Math.round(
           basePoints * confidenceMultiplier(prediction.confidence, settings)
         )
-      : settings.POINTS_WRONG;
+      : -confidencePenalty(prediction.confidence, settings);
 
     await prisma.$transaction([
       prisma.prediction.update({
@@ -88,7 +123,11 @@ export async function evaluateFixture(fixtureId: string) {
           type: NotificationType.RESULT_DECLARED,
           title: isCorrect ? "You got it right! 🎉" : "Result declared",
           message: `${fixture.side1Label} vs ${fixture.side2Label} (${fixture.sport.name} ${fixture.matchCategory}): ${winnerName} won. ${
-            isCorrect ? `+${points} points!` : "Better luck next time."
+            isCorrect
+              ? `+${points} points!`
+              : points < 0
+                ? `${points} points — high-confidence miss.`
+                : "Better luck next time."
           }`,
           link: `/fixtures`,
         },
@@ -220,6 +259,53 @@ async function awardDailyBonuses(
       });
     }
     await recomputeLeaderboardEntry(userId);
+  }
+}
+
+/**
+ * Score every user's tournament-winner pick once the admin sets the champion
+ * team. Correct picks earn CHAMPION_BONUS; wrong picks get nothing (no
+ * penalty). Idempotent — re-running re-syncs to the current champion.
+ */
+export async function evaluateChampionPredictions(tournamentId: string) {
+  const tournament = await prisma.tournament.findUniqueOrThrow({
+    where: { id: tournamentId },
+    include: { championTeam: true, championPredictions: true },
+  });
+  if (!tournament.championTeamId) throw new Error("No champion team set");
+
+  const settings = await getSettings();
+  const bonus = settings.CHAMPION_BONUS;
+  const reason = `Tournament winner bonus (${tournament.name})`;
+
+  for (const pick of tournament.championPredictions) {
+    const isCorrect = pick.teamId === tournament.championTeamId;
+    const points = isCorrect ? bonus : 0;
+
+    // Reset any prior champion-bonus history for this user/tournament, then
+    // re-add if correct — keeps re-reveals consistent.
+    await prisma.pointsHistory.deleteMany({ where: { userId: pick.userId, reason } });
+    await prisma.championPrediction.update({
+      where: { id: pick.id },
+      data: { isCorrect, pointsAwarded: points },
+    });
+    if (points !== 0) {
+      await prisma.pointsHistory.create({
+        data: { userId: pick.userId, points, reason },
+      });
+    }
+    await prisma.notification.create({
+      data: {
+        userId: pick.userId,
+        type: NotificationType.ACHIEVEMENT,
+        title: isCorrect ? "Champion call nailed! 🏆" : "Tournament winner declared",
+        message: isCorrect
+          ? `${tournament.championTeam!.name} won the tournament — your pick was right! +${points} points.`
+          : `${tournament.championTeam!.name} won the tournament. Your champion pick missed this time.`,
+        link: "/",
+      },
+    });
+    await recomputeLeaderboardEntry(pick.userId);
   }
 }
 

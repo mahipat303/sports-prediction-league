@@ -64,7 +64,7 @@ export default async function PlayersPage(props: {
         </Card>
       ) : (
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-          {filtered.map((player) => {
+          {filtered.map((player, idx) => {
             const cat = CATEGORY_META[player.category];
             const played = player.fixturePlayers.filter(
               (fp) => fp.fixture.status === "COMPLETED"
@@ -73,7 +73,11 @@ export default async function PlayersPage(props: {
               (fp) => fp.fixture.winnerSide === fp.side
             ).length;
             return (
-              <Card key={player.id} className="transition-all hover:-translate-y-0.5 hover:shadow-lg">
+              <Card
+                key={player.id}
+                style={{ animationDelay: `${Math.min(idx, 12) * 35}ms` }}
+                className="animate-in-up transition-all hover:-translate-y-0.5 hover:shadow-lg"
+              >
                 <CardContent className="p-4">
                   <div className="flex items-start gap-3">
                     <Avatar
@@ -84,6 +88,11 @@ export default async function PlayersPage(props: {
                     />
                     <div className="min-w-0 flex-1">
                       <p className="truncate font-semibold">{player.name}</p>
+                      {player.specialBadge && (
+                        <span className="mt-0.5 inline-block rounded-full bg-gradient-to-r from-amber-400/20 to-pink-400/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-300">
+                          {player.specialBadge}
+                        </span>
+                      )}
                       <p className="text-xs text-muted-foreground">
                         {player.team?.name ?? "Unassigned"}
                       </p>

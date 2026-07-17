@@ -65,6 +65,7 @@ model User {
   notifications Notification[]
   achievements  UserAchievement[]
   leaderboard   LeaderboardEntry?
+  championPredictions ChampionPrediction[]
 }
 
 model Team {
@@ -83,6 +84,8 @@ model Team {
   side1Fixtures Fixture[] @relation("Side1Team")
   side2Fixtures Fixture[] @relation("Side2Team")
   auctionEvents AuctionEvent[]
+  championPredictions ChampionPrediction[]
+  championOf    Tournament[] @relation("Champion")
 }
 
 model Sport {
@@ -102,6 +105,7 @@ model Player {
   avatarUrl    String?
   category     PlayerCategory
   isCaptain    Boolean        @default(false)
+  specialBadge String? // fun label shown beside the name, e.g. "👑 OG Player"
   auctionPrice Float          @default(0)
   ratings      String? // JSON: self-assessed skill per sport from the auction sheet
   teamId       String?
@@ -156,6 +160,7 @@ model Fixture {
   lockTime       DateTime // predictions close at this time
   status         FixtureStatus  @default(SCHEDULED)
   venue          String?
+  liveUrl        String? // optional live stream / meeting link (YouTube, Meet, Zoom…)
   isUpset        Boolean        @default(false) // winner was the underdog
   underdogSide   Int? // admin-designated underdog side (1 or 2, optional)
   createdAt      DateTime       @default(now())
@@ -268,9 +273,33 @@ model Setting {
 }
 
 model Tournament {
-  id        String   @id @default(cuid())
-  name      String
-  eventDate DateTime
-  isActive  Boolean  @default(true)
-  createdAt DateTime @default(now())
+  id               String    @id @default(cuid())
+  name             String
+  eventDate        DateTime
+  isActive         Boolean   @default(true)
+  championLockTime DateTime? // champion picks close at this time (defaults to eventDate)
+  championTeamId   String? // set by admin when the tournament winner is decided
+  createdAt        DateTime  @default(now())
+
+  championTeam        Team?                @relation("Champion", fields: [championTeamId], references: [id], onDelete: SetNull)
+  championPredictions ChampionPrediction[]
+}
+
+// A user's single pick for the overall tournament champion team. Scored
+// separately from match predictions so it doesn't affect prediction accuracy.
+model ChampionPrediction {
+  id            String   @id @default(cuid())
+  tournamentId  String
+  userId        String
+  teamId        String
+  isCorrect     Boolean?
+  pointsAwarded Float    @default(0)
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  tournament Tournament @relation(fields: [tournamentId], references: [id], onDelete: Cascade)
+  user       User       @relation(fields: [userId], references: [id], onDelete: Cascade)
+  team       Team       @relation(fields: [teamId], references: [id], onDelete: Cascade)
+
+  @@unique([tournamentId, userId])
 }

@@ -24,11 +24,7 @@ export function Countdown({ target, label }: { target: string; label?: string })
 
   const diff = new Date(target).getTime() - now;
   if (diff <= 0) {
-    return (
-      <div className="text-2xl font-bold text-emerald-500">
-        🎉 It&apos;s Sports Day!
-      </div>
-    );
+    return null;
   }
 
   const days = Math.floor(diff / 86400000);

@@ -92,7 +92,14 @@ export default async function TeamDetailPage(props: {
                     <div className="flex items-center gap-3 rounded-xl border border-border/50 p-3 transition-colors hover:bg-accent">
                       <Avatar name={player.name} src={player.avatarUrl} className="h-10 w-10 text-xs" />
                       <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium">{player.name}</p>
+                        <p className="truncate text-sm font-medium">
+                          {player.name}
+                          {player.specialBadge && (
+                            <span className="ml-1.5 rounded-full bg-gradient-to-r from-amber-400/20 to-pink-400/20 px-1.5 py-0.5 text-[10px] font-semibold text-amber-600 dark:text-amber-300">
+                              {player.specialBadge}
+                            </span>
+                          )}
+                        </p>
                         <p className="text-xs text-muted-foreground">
                           {player.assignments.map((a) => a.sport.name).join(", ") || "No sport assigned"}
                         </p>

@@ -1,6 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import {
-  createFixture, setFixtureStatus, deleteFixture, updateFixtureSides,
+  createFixture, setFixtureStatus, deleteFixture, updateFixtureSides, setFixtureLiveUrl,
 } from "@/app/admin/actions";
 import { formatDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -57,6 +57,7 @@ export default async function AdminFixturesPage() {
               <Input name="side1Label" placeholder="Side 1 (e.g. Parth or A/B)" required />
               <Input name="side2Label" placeholder="Side 2" required />
               <Input name="winnerPoints" type="number" step="any" placeholder="Winner points (Sports Day)" />
+              <Input name="liveUrl" type="url" placeholder="Live link (optional)" />
               <Button type="submit">Create</Button>
             </form>
           )}
@@ -141,6 +142,18 @@ export default async function AdminFixturesPage() {
                   </form>
                 )}
               </div>
+              <form action={setFixtureLiveUrl} className="flex w-full items-center gap-2">
+                <span className="text-xs text-muted-foreground">📺 Live link</span>
+                <Input
+                  name="liveUrl"
+                  type="url"
+                  placeholder="https://… (YouTube, Meet, Zoom)"
+                  defaultValue={fixture.liveUrl ?? ""}
+                  className="h-8 flex-1"
+                />
+                <input type="hidden" name="fixtureId" value={fixture.id} />
+                <Button size="sm" variant="outline" type="submit">Save link</Button>
+              </form>
             </div>
           ))}
         </CardContent>
