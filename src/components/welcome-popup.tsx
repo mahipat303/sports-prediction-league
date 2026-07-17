@@ -56,7 +56,7 @@ export function WelcomePopup({ name }: { name: string }) {
             <div className="pointer-events-none absolute -bottom-10 -right-6 h-28 w-28 rounded-full bg-pink-300/30 blur-2xl" />
             <Sparkles className="mx-auto mb-1 h-6 w-6 animate-pulse text-yellow-200" />
             <h3 className="relative text-lg font-extrabold leading-tight drop-shadow-sm sm:text-xl">
-              🚀 Give OpsHub Engineers Claude Access!
+              🚀 Give OpsHub Employees Claude Access!
             </h3>
             <p className="relative mt-2 text-sm text-white/90">
               This entire app was built with the help of{" "}
@@ -65,7 +65,7 @@ export function WelcomePopup({ name }: { name: string }) {
             </p>
             <p className="relative mt-2 text-sm font-semibold text-yellow-100">
               If you&apos;re enjoying it, consider this a friendly petition:
-              maybe it&apos;s time <em>every</em> OpsHub engineer got Claude. 😉✨
+              maybe it&apos;s time <em>every</em> OpsHub employee got Claude. 😉✨
             </p>
           </div>
         </div>
