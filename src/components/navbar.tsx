@@ -6,7 +6,7 @@ import { useState } from "react";
 import type { Session } from "next-auth";
 import { signOut } from "next-auth/react";
 import {
-  Trophy, Menu, X, LogOut, Shield, Bell, CalendarDays, Users,
+  Trophy, Menu, X, LogOut, Shield, Bell, CalendarDays, CalendarClock, Users,
   UserRound, BarChart3, ListChecks, Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
@@ -20,6 +20,7 @@ const links = [
   { href: "/teams", label: "Teams", icon: Users },
   { href: "/players", label: "Players", icon: UserRound },
   { href: "/fixtures", label: "Fixtures", icon: CalendarDays },
+  { href: "/schedule", label: "Schedule", icon: CalendarClock },
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
   { href: "/predictions", label: "My Predictions", icon: ListChecks },
   { href: "/stats", label: "Stats", icon: BarChart3 },
