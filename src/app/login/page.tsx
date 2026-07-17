@@ -8,6 +8,7 @@ import { Trophy } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { resetWelcome } from "@/lib/welcome";
 
 function LoginForm() {
   const router = useRouter();
@@ -31,6 +32,7 @@ function LoginForm() {
     if (result?.error) {
       setError("Invalid email or password — or your email isn't verified yet (register again to get a new code)");
     } else {
+      resetWelcome(); // ensure the welcome popup shows again this login
       router.push("/");
       router.refresh();
     }
@@ -75,7 +77,7 @@ function LoginForm() {
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => signIn("google", { callbackUrl: "/" })}
+              onClick={() => { resetWelcome(); signIn("google", { callbackUrl: "/" }); }}
             >
               Continue with Google
             </Button>

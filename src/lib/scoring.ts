@@ -59,6 +59,22 @@ function confidencePenalty(
   }
 }
 
+/** Shape the live scoring settings into the values the Rules explainer needs. */
+export function rulesValuesFrom(settings: Record<SettingKey, number>) {
+  return {
+    pointsCorrect: settings.POINTS_CORRECT,
+    pointsUpset: settings.POINTS_UPSET,
+    medMult: settings.CONFIDENCE_MEDIUM_MULT,
+    highMult: settings.CONFIDENCE_HIGH_MULT,
+    penMed: settings.PENALTY_MEDIUM,
+    penHigh: settings.PENALTY_HIGH,
+    streak: settings.STREAK_BONUS,
+    perfectDay: settings.PERFECT_DAY_BONUS,
+    championBonus: settings.CHAMPION_BONUS,
+    lockMinutes: settings.LOCK_MINUTES_BEFORE_START,
+  };
+}
+
 /** Preview the points a confidence level yields for a given base — used by the UI. */
 export function scorePreview(base: number, settings: Record<SettingKey, number>) {
   return {

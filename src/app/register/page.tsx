@@ -9,6 +9,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { registerUser, verifyEmail, resendVerificationCode } from "@/app/actions";
+import { resetWelcome } from "@/lib/welcome";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -51,6 +52,7 @@ export default function RegisterPage() {
       return;
     }
     // Verified — sign straight in
+    resetWelcome();
     await signIn("credentials", { email, password, redirect: false });
     router.push("/");
     router.refresh();

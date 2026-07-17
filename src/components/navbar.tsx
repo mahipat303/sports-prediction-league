@@ -10,6 +10,7 @@ import {
   UserRound, BarChart3, ListChecks, Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { resetWelcome } from "@/lib/welcome";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { Avatar } from "@/components/ui/avatar";
@@ -86,7 +87,7 @@ export function Navbar({ session }: { session: Session | null }) {
               <Button
                 variant="ghost"
                 size="icon"
-                onClick={() => signOut({ callbackUrl: "/" })}
+                onClick={() => { resetWelcome(); signOut({ callbackUrl: "/" }); }}
                 aria-label="Sign out"
               >
                 <LogOut className="h-4 w-4" />

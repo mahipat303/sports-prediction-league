@@ -2,8 +2,10 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import { SessionProvider } from "next-auth/react";
 import { auth } from "@/lib/auth";
+import { getSettings, rulesValuesFrom } from "@/lib/scoring";
 import { Navbar } from "@/components/navbar";
 import { WelcomePopup } from "@/components/welcome-popup";
+import { RulesButton } from "@/components/rules-button";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -28,6 +30,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   const session = await auth();
+  const rulesValues = rulesValuesFrom(await getSettings());
   return (
     <html
       lang="en"
@@ -51,6 +54,7 @@ export default async function RootLayout({
             Office Sports Day Prediction League · Virtual points only · Not a
             gambling app 🏆
           </footer>
+          <RulesButton values={rulesValues} variant="floating" />
         </SessionProvider>
       </body>
     </html>

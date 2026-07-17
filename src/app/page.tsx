@@ -3,7 +3,7 @@ import { Trophy, TrendingUp, Target, ArrowRight, Sparkles, BookOpen } from "luci
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { getFixtures } from "@/lib/fixtures";
-import { getSettings } from "@/lib/scoring";
+import { getSettings, rulesValuesFrom } from "@/lib/scoring";
 import { accuracy, cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -45,18 +45,7 @@ export default async function HomePage() {
     (sum, t) => sum + t._count.championPredictions,
     0
   );
-  const rulesValues = {
-    pointsCorrect: settings.POINTS_CORRECT,
-    pointsUpset: settings.POINTS_UPSET,
-    medMult: settings.CONFIDENCE_MEDIUM_MULT,
-    highMult: settings.CONFIDENCE_HIGH_MULT,
-    penMed: settings.PENALTY_MEDIUM,
-    penHigh: settings.PENALTY_HIGH,
-    streak: settings.STREAK_BONUS,
-    perfectDay: settings.PERFECT_DAY_BONUS,
-    championBonus: settings.CHAMPION_BONUS,
-    lockMinutes: settings.LOCK_MINUTES_BEFORE_START,
-  };
+  const rulesValues = rulesValuesFrom(settings);
 
   const now = new Date();
   const todayStart = new Date(now); todayStart.setHours(0, 0, 0, 0);
