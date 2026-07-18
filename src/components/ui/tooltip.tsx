@@ -46,10 +46,10 @@ export function InfoTip({
           onOpenAutoFocus={(e) => e.preventDefault()}
           onMouseEnter={() => setOpen(true)}
           onMouseLeave={() => setOpen(false)}
-          className="z-[60] w-64 max-w-[calc(100vw-16px)] rounded-xl border border-border/60 bg-popover p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-popover-foreground shadow-xl"
+          className="z-[60] w-64 max-w-[calc(100vw-16px)] rounded-xl border border-border bg-card p-3 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-card-foreground shadow-xl"
         >
           {children}
-          <Popover.Arrow className="fill-popover" width={12} height={6} />
+          <Popover.Arrow className="fill-[var(--border)]" width={12} height={6} />
         </Popover.Content>
       </Popover.Portal>
     </Popover.Root>
