@@ -2,7 +2,7 @@
 
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, Cell,
-  RadialBarChart, RadialBar, Legend,
+  RadialBarChart, RadialBar,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoTip } from "@/components/ui/tooltip";
@@ -130,32 +130,56 @@ export function StatsCharts({
             </CardTitle>
           </CardHeader>
           <CardContent>
-            <ResponsiveContainer width="100%" height={260}>
-              <RadialBarChart
-                innerRadius="25%"
-                outerRadius="95%"
-                data={teamStats.map((t) => ({ ...t, fill: t.color }))}
-                startAngle={90}
-                endAngle={-270}
-              >
-                <RadialBar dataKey="winPct" background cornerRadius={8} label={{ fill: "#fff", fontSize: 11, position: "insideStart" }} />
-                <Legend
-                  formatter={(value, entry) => {
-                    const datum = teamStats.find((t) => t.color === (entry as { color?: string }).color);
-                    return `${datum?.fullName ?? value} — ${datum?.won ?? 0}/${datum?.played ?? 0} wins`;
-                  }}
-                />
-                <Tooltip
-                  formatter={(value) => [`${value}%`, "Win rate"]}
-                  contentStyle={{
-                    backgroundColor: "var(--card)",
-                    border: "1px solid var(--border)",
-                    borderRadius: "0.75rem",
-                    color: "var(--foreground)",
-                  }}
-                />
-              </RadialBarChart>
-            </ResponsiveContainer>
+            <div className="grid items-center gap-4 sm:grid-cols-2">
+              {/* Chart */}
+              <div className="mx-auto w-full max-w-[280px]">
+                <ResponsiveContainer width="100%" height={240}>
+                  <RadialBarChart
+                    innerRadius="30%"
+                    outerRadius="100%"
+                    data={[...teamStats]
+                      .sort((a, b) => b.winPct - a.winPct)
+                      .map((t) => ({ ...t, fill: t.color }))}
+                    startAngle={90}
+                    endAngle={-270}
+                  >
+                    <RadialBar dataKey="winPct" background cornerRadius={8} label={{ fill: "#fff", fontSize: 11, position: "insideStart" }} />
+                    <Tooltip
+                      formatter={(value) => [`${value}%`, "Win rate"]}
+                      contentStyle={{
+                        backgroundColor: "var(--card)",
+                        border: "1px solid var(--border)",
+                        borderRadius: "0.75rem",
+                        color: "var(--foreground)",
+                      }}
+                    />
+                  </RadialBarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Legend / standings list */}
+              <div className="space-y-2.5">
+                {[...teamStats]
+                  .sort((a, b) => b.winPct - a.winPct)
+                  .map((t) => (
+                    <div key={t.name} className="flex items-center gap-3">
+                      <span className="h-3 w-3 flex-shrink-0 rounded-full" style={{ backgroundColor: t.color }} />
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-baseline justify-between gap-2">
+                          <span className="truncate text-sm font-medium">{t.fullName}</span>
+                          <span className="flex-shrink-0 text-sm font-semibold tabular-nums">{t.winPct}%</span>
+                        </div>
+                        <div className="mt-1 h-2 w-full overflow-hidden rounded-full bg-muted">
+                          <div className="h-full rounded-full" style={{ width: `${t.winPct}%`, backgroundColor: t.color }} />
+                        </div>
+                        <p className="mt-0.5 text-[11px] text-muted-foreground">
+                          {t.won} won / {t.played} played
+                        </p>
+                      </div>
+                    </div>
+                  ))}
+              </div>
+            </div>
           </CardContent>
         </Card>
       )}
