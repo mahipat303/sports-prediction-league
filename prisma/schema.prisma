@@ -171,6 +171,7 @@ model Fixture {
   side2Team   Team? @relation("Side2Team", fields: [side2TeamId], references: [id], onDelete: SetNull)
   players     FixturePlayer[]
   predictions Prediction[]
+  resultEdits ResultEdit[]
 
   @@index([startTime])
   @@index([status])
@@ -264,6 +265,23 @@ model UserAchievement {
   achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
 
   @@unique([userId, achievementId])
+}
+
+// Audit trail for admin corrections to published match results.
+model ResultEdit {
+  id             String   @id @default(cuid())
+  fixtureId      String
+  editedById     String?
+  editedByName   String
+  prevWinnerSide Int?
+  newWinnerSide  Int
+  prevScore      String?
+  newScore       String?
+  createdAt      DateTime @default(now())
+
+  fixture Fixture @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+
+  @@index([fixtureId])
 }
 
 // Admin-configurable scoring values, stored as key/value.

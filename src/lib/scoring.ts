@@ -93,8 +93,18 @@ export function scorePreview(base: number, settings: Record<SettingKey, number>)
 /**
  * Evaluate all predictions for a completed fixture, award points, update the
  * leaderboard, and notify users. Called when the admin enters a result.
+ *
+ * Idempotent: this fixture's PointsHistory rows are replaced, not appended,
+ * so re-running (mode "reevaluate", used when an admin corrects a published
+ * result) always converges to the correct final state with no double-counting.
+ * In reevaluate mode the per-prediction result notifications are replaced by a
+ * single "result updated" notification per predictor, and the day's
+ * streak/perfect bonuses are recomputed from scratch.
  */
-export async function evaluateFixture(fixtureId: string) {
+export async function evaluateFixture(
+  fixtureId: string,
+  mode: "initial" | "reevaluate" = "initial"
+) {
   const fixture = await prisma.fixture.findUniqueOrThrow({
     where: { id: fixtureId },
     include: { predictions: true, sport: true },
@@ -102,6 +112,11 @@ export async function evaluateFixture(fixtureId: string) {
   if (!fixture.winnerSide) throw new Error("Fixture has no winner set");
 
   const settings = await getSettings();
+
+  // Replace (don't append) this fixture's points rows. Match-prediction rows
+  // are the only PointsHistory entries that carry a fixtureId, so this is
+  // precise. On first evaluation there is nothing to delete.
+  await prisma.pointsHistory.deleteMany({ where: { fixtureId: fixture.id } });
   const isUpset =
     fixture.isUpset ||
     (fixture.underdogSide !== null &&
@@ -118,6 +133,33 @@ export async function evaluateFixture(fixtureId: string) {
         )
       : -confidencePenalty(prediction.confidence, settings);
 
+    const notification =
+      mode === "initial"
+        ? prisma.notification.create({
+            data: {
+              userId: prediction.userId,
+              type: NotificationType.RESULT_DECLARED,
+              title: isCorrect ? "You got it right! 🎉" : "Result declared",
+              message: `${fixture.side1Label} vs ${fixture.side2Label} (${fixture.sport.name} ${fixture.matchCategory}): ${winnerName} won. ${
+                isCorrect
+                  ? `+${points} points!`
+                  : points < 0
+                    ? `${points} points — high-confidence miss.`
+                    : "Better luck next time."
+              }`,
+              link: `/fixtures`,
+            },
+          })
+        : prisma.notification.create({
+            data: {
+              userId: prediction.userId,
+              type: NotificationType.RESULT_DECLARED,
+              title: "Result updated ✏️",
+              message: `The result of ${fixture.side1Label} vs ${fixture.side2Label} (${fixture.sport.name} ${fixture.matchCategory}) was corrected: ${winnerName} won. Your points for this match are now ${points > 0 ? "+" : ""}${points}.`,
+              link: `/fixtures`,
+            },
+          });
+
     await prisma.$transaction([
       prisma.prediction.update({
         where: { id: prediction.id },
@@ -133,28 +175,17 @@ export async function evaluateFixture(fixtureId: string) {
             : `Wrong prediction: ${fixture.sport.name} ${fixture.matchCategory}`,
         },
       }),
-      prisma.notification.create({
-        data: {
-          userId: prediction.userId,
-          type: NotificationType.RESULT_DECLARED,
-          title: isCorrect ? "You got it right! 🎉" : "Result declared",
-          message: `${fixture.side1Label} vs ${fixture.side2Label} (${fixture.sport.name} ${fixture.matchCategory}): ${winnerName} won. ${
-            isCorrect
-              ? `+${points} points!`
-              : points < 0
-                ? `${points} points — high-confidence miss.`
-                : "Better luck next time."
-          }`,
-          link: `/fixtures`,
-        },
-      }),
+      notification,
     ]);
 
     await recomputeLeaderboardEntry(prediction.userId);
   }
 
   // Daily bonuses are evaluated once all of today's fixtures are complete.
-  await awardDailyBonuses(fixture.startTime, settings);
+  // A corrected result can change who earned them, so recompute on edits.
+  await awardDailyBonuses(fixture.startTime, settings, {
+    recompute: mode === "reevaluate",
+  });
 }
 
 /** Recompute a user's leaderboard entry from scratch (idempotent). */
@@ -214,13 +245,26 @@ export async function recomputeLeaderboardEntry(userId: string) {
  */
 async function awardDailyBonuses(
   dayOf: Date,
-  settings: Record<SettingKey, number>
+  settings: Record<SettingKey, number>,
+  opts: { recompute?: boolean } = {}
 ) {
   const dayStart = new Date(dayOf);
   dayStart.setHours(0, 0, 0, 0);
   const dayEnd = new Date(dayStart);
   dayEnd.setDate(dayEnd.getDate() + 1);
   const dayKey = dayStart.toISOString().slice(0, 10);
+
+  // When a published result is corrected, wipe the day's bonuses and re-derive
+  // them from the corrected predictions (no duplicate notifications).
+  if (opts.recompute) {
+    await prisma.pointsHistory.deleteMany({
+      where: {
+        reason: {
+          in: [`Daily streak bonus (${dayKey})`, `Perfect day bonus (${dayKey})`],
+        },
+      },
+    });
+  }
 
   const todaysFixtures = await prisma.fixture.findMany({
     where: {
@@ -244,7 +288,12 @@ async function awardDailyBonuses(
   }
 
   for (const [userId, { correct, total }] of byUser) {
-    if (correct === 0) continue;
+    if (correct === 0) {
+      // In recompute mode their previous bonus may have just been deleted, so
+      // their total still needs a refresh.
+      if (opts.recompute) await recomputeLeaderboardEntry(userId);
+      continue;
+    }
 
     const streakReason = `Daily streak bonus (${dayKey})`;
     const perfectReason = `Perfect day bonus (${dayKey})`;
@@ -265,14 +314,18 @@ async function awardDailyBonuses(
       await prisma.pointsHistory.create({
         data: { userId, points: bonus.points, reason: bonus.reason },
       });
-      await prisma.notification.create({
-        data: {
-          userId,
-          type: NotificationType.ACHIEVEMENT,
-          title: "Bonus points! ✨",
-          message: `${bonus.reason.replace(/ \(.*\)$/, "")}: +${bonus.points} points`,
-        },
-      });
+      // Skip re-notifying on recomputation — users already got the original
+      // bonus notification; only the numbers are being corrected.
+      if (!opts.recompute) {
+        await prisma.notification.create({
+          data: {
+            userId,
+            type: NotificationType.ACHIEVEMENT,
+            title: "Bonus points! ✨",
+            message: `${bonus.reason.replace(/ \(.*\)$/, "")}: +${bonus.points} points`,
+          },
+        });
+      }
     }
     await recomputeLeaderboardEntry(userId);
   }

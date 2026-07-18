@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { enterResult } from "@/app/admin/actions";
 import { formatDateTime } from "@/lib/utils";
+import { EditResultForm } from "@/components/edit-result-form";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -17,7 +18,10 @@ export default async function AdminResultsPage() {
   });
   const completed = await prisma.fixture.findMany({
     where: { status: "COMPLETED" },
-    include: { sport: true },
+    include: {
+      sport: true,
+      resultEdits: { orderBy: { createdAt: "desc" }, take: 3 },
+    },
     orderBy: { startTime: "desc" },
     take: 15,
   });
@@ -77,17 +81,52 @@ export default async function AdminResultsPage() {
             <p className="p-4 text-center text-sm text-muted-foreground">No results yet.</p>
           )}
           {completed.map((fixture) => (
-            <div key={fixture.id} className="flex flex-wrap items-center gap-2 rounded-xl border border-border/50 p-3 text-sm">
-              <Badge variant="secondary">{fixture.sport.icon} {fixture.sport.name}</Badge>
-              <span className="text-xs text-muted-foreground">{fixture.matchCategory}</span>
-              <span>{fixture.side1Label} vs {fixture.side2Label}</span>
-              {fixture.scoreSummary && (
-                <span className="font-mono text-xs text-muted-foreground">{fixture.scoreSummary}</span>
+            <div key={fixture.id} className="space-y-2 rounded-xl border border-border/50 p-3 text-sm">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="secondary">{fixture.sport.icon} {fixture.sport.name}</Badge>
+                <span className="text-xs text-muted-foreground">{fixture.matchCategory}</span>
+                <span>{fixture.side1Label} vs {fixture.side2Label}</span>
+                {fixture.scoreSummary && (
+                  <span className="font-mono text-xs text-muted-foreground">{fixture.scoreSummary}</span>
+                )}
+                <Badge variant="success" className="ml-auto">
+                  🏆 {fixture.winnerSide === 1 ? fixture.side1Label : fixture.side2Label}
+                </Badge>
+                {fixture.isUpset && <Badge variant="warning">Upset</Badge>}
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <EditResultForm
+                  fixtureId={fixture.id}
+                  side1Label={fixture.side1Label}
+                  side2Label={fixture.side2Label}
+                  winnerSide={fixture.winnerSide ?? 1}
+                  scoreSummary={fixture.scoreSummary}
+                  isUpset={fixture.isUpset}
+                />
+                {fixture.resultEdits.length > 0 && (
+                  <span className="text-xs text-muted-foreground">
+                    ✏️ Last updated by {fixture.resultEdits[0].editedByName} ·{" "}
+                    {formatDateTime(fixture.resultEdits[0].createdAt)}
+                    {fixture.resultEdits.length > 1 &&
+                      ` (${fixture.resultEdits.length} edits)`}
+                  </span>
+                )}
+              </div>
+              {fixture.resultEdits.length > 0 && (
+                <div className="space-y-0.5 text-[11px] text-muted-foreground">
+                  {fixture.resultEdits.map((edit) => (
+                    <p key={edit.id}>
+                      {formatDateTime(edit.createdAt)} — {edit.editedByName} changed winner{" "}
+                      {edit.prevWinnerSide
+                        ? (edit.prevWinnerSide === 1 ? fixture.side1Label : fixture.side2Label)
+                        : "—"}{" "}
+                      → {edit.newWinnerSide === 1 ? fixture.side1Label : fixture.side2Label}
+                      {edit.prevScore !== edit.newScore &&
+                        `, score ${edit.prevScore ?? "—"} → ${edit.newScore ?? "—"}`}
+                    </p>
+                  ))}
+                </div>
               )}
-              <Badge variant="success" className="ml-auto">
-                🏆 {fixture.winnerSide === 1 ? fixture.side1Label : fixture.side2Label}
-              </Badge>
-              {fixture.isUpset && <Badge variant="warning">Upset</Badge>}
             </div>
           ))}
         </CardContent>

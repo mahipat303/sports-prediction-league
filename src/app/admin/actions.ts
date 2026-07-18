@@ -67,6 +67,51 @@ export async function enterResult(formData: FormData) {
   return;
 }
 
+/**
+ * Correct an already-published result. Records an audit entry, updates the
+ * fixture, and re-runs scoring idempotently (points replaced, day bonuses
+ * recomputed, leaderboard refreshed). Called from the client edit form, so it
+ * returns a result object.
+ */
+export async function updateResult(formData: FormData) {
+  const session = await requireAdmin();
+  const parsed = resultSchema.safeParse({
+    fixtureId: formData.get("fixtureId"),
+    winnerSide: formData.get("winnerSide"),
+    scoreSummary: formData.get("scoreSummary") || undefined,
+    isUpset: formData.get("isUpset") === "on",
+  });
+  if (!parsed.success) return { error: "Invalid result data" };
+  const { fixtureId, winnerSide, scoreSummary, isUpset } = parsed.data;
+
+  const fixture = await prisma.fixture.findUnique({ where: { id: fixtureId } });
+  if (!fixture) return { error: "Fixture not found" };
+  if (fixture.status !== "COMPLETED") {
+    return { error: "Only published results can be edited" };
+  }
+
+  await prisma.resultEdit.create({
+    data: {
+      fixtureId,
+      editedById: session.user.id,
+      editedByName: session.user.name ?? "Admin",
+      prevWinnerSide: fixture.winnerSide,
+      newWinnerSide: winnerSide,
+      prevScore: fixture.scoreSummary,
+      newScore: scoreSummary ?? null,
+    },
+  });
+
+  await prisma.fixture.update({
+    where: { id: fixtureId },
+    data: { winnerSide, scoreSummary: scoreSummary ?? null, isUpset },
+  });
+
+  await evaluateFixture(fixtureId, "reevaluate");
+  revalidateAll();
+  return { success: true };
+}
+
 // ---------- Fixture lifecycle ----------
 export async function setFixtureStatus(formData: FormData) {
   await requireAdmin();
