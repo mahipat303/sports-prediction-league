@@ -5,6 +5,7 @@ import {
   RadialBarChart, RadialBar, Legend,
 } from "recharts";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { InfoTip } from "@/components/ui/tooltip";
 
 interface AccuracyDatum {
   name: string;
@@ -47,7 +48,14 @@ export function StatsCharts({
       {sportAccuracy.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>🎯 Prediction Accuracy by Sport</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+              🎯 Prediction Accuracy by Sport
+              <InfoTip>
+                For each sport: (correct predictions ÷ all scored predictions in
+                that sport) × 100, across every user. Shows which sports the
+                office reads best.
+              </InfoTip>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={260}>
@@ -73,7 +81,13 @@ export function StatsCharts({
       {categoryAccuracy.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>🏅 Accuracy by Category</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+              🏅 Accuracy by Category
+              <InfoTip>
+                Same accuracy formula, grouped by match category (Male Singles,
+                Mix Double, …): correct ÷ total scored predictions × 100.
+              </InfoTip>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={260}>
@@ -106,7 +120,14 @@ export function StatsCharts({
       {teamStats.some((t) => t.played > 0) && (
         <Card className="lg:col-span-2">
           <CardHeader>
-            <CardTitle>🏆 Team Win Percentage</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+              🏆 Team Win Percentage
+              <InfoTip>
+                Matches won ÷ matches played × 100 per team. A team plays a
+                match when all players on one side belong to it; matches whose
+                sides aren&apos;t linked to a team don&apos;t count here.
+              </InfoTip>
+            </CardTitle>
           </CardHeader>
           <CardContent>
             <ResponsiveContainer width="100%" height={260}>

@@ -6,6 +6,7 @@ import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
 import { evaluateFixture, evaluateChampionPredictions, recomputeLeaderboardEntry, getSettings, DEFAULT_SETTINGS, type SettingKey } from "@/lib/scoring";
 import { importWorkbook, type ImportResult } from "@/lib/excel-import";
+import { resolvePlayerFixtures, reresolveAllFixtures } from "@/lib/fixture-resolution";
 import { NotificationType, PlayerCategory } from "@prisma/client";
 
 function revalidateAll() {
@@ -303,6 +304,24 @@ export async function updatePlayer(formData: FormData) {
       teamId: teamId || undefined,
     },
   });
+  // Keep historical fixtures consistent with the new assignment (schedule,
+  // team stats, standings all read the side-team snapshots).
+  await resolvePlayerFixtures(id);
+  revalidateAll();
+  return;
+}
+
+/**
+ * Re-derive every fixture's side→team snapshot from current player
+ * assignments, retrying name-matching for sides that never linked a player.
+ * Display/stats metadata only — predictions and results are untouched.
+ */
+export async function reresolveFixtures() {
+  await requireAdmin();
+  const summary = await reresolveAllFixtures();
+  console.log(
+    `Re-resolve: ${summary.fixturesChecked} fixtures checked, ${summary.sidesUpdated} updated, ${summary.playersLinked} players newly linked`
+  );
   revalidateAll();
   return;
 }

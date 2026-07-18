@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { updatePlayer } from "@/app/admin/actions";
+import { updatePlayer, reresolveFixtures } from "@/app/admin/actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,10 +16,34 @@ export default async function AdminPlayersPage() {
     prisma.team.findMany({ orderBy: { name: "asc" } }),
   ]);
 
+  const unresolvedSides = await prisma.fixture.count({
+    where: {
+      isPlaceholder: false,
+      OR: [{ side1TeamId: null }, { side2TeamId: null }],
+    },
+  });
+
   return (
     <Card>
       <CardHeader>
-        <CardTitle>Edit Players ({players.length})</CardTitle>
+        <CardTitle className="flex flex-wrap items-center gap-3">
+          Edit Players ({players.length})
+          <form action={reresolveFixtures} className="ml-auto flex items-center gap-2">
+            {unresolvedSides > 0 && (
+              <span className="text-xs font-normal text-muted-foreground">
+                {unresolvedSides} fixture{unresolvedSides === 1 ? "" : "s"} with an unresolved side
+              </span>
+            )}
+            <Button type="submit" size="sm" variant="outline">
+              🔄 Re-resolve all fixtures
+            </Button>
+          </form>
+        </CardTitle>
+        <p className="text-xs text-muted-foreground">
+          Team changes here update historical fixtures, schedule, and team
+          stats automatically. &quot;Re-resolve&quot; retries matching schedule names
+          (e.g. after renaming a player) — it never touches predictions or results.
+        </p>
       </CardHeader>
       <CardContent className="space-y-2">
         {players.length === 0 && (

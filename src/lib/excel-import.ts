@@ -118,7 +118,7 @@ function editDistance(a: string, b: string): number {
   return dp[a.length][b.length];
 }
 
-function matchPlayer<T extends { id: string; name: string }>(
+export function matchPlayer<T extends { id: string; name: string }>(
   label: string,
   players: T[],
   taken?: Set<string>
@@ -174,7 +174,7 @@ function matchPlayer<T extends { id: string; name: string }>(
   return null;
 }
 
-function isPlaceholderLabel(label: string): boolean {
+export function isPlaceholderLabel(label: string): boolean {
   return /^(winner|loser|runner|tbd|qualifier)\b/i.test(label.trim());
 }
 

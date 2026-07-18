@@ -116,10 +116,30 @@ export default async function StatsPage() {
   const bestTeam = [...teamStats].sort((a, b) => b.winPct - a.winPct)[0];
 
   const highlights: { label: string; value: string; detail: string; tip?: string }[] = [
-    { label: "Best predictor", value: best?.user.name ?? "—", detail: best ? `${accuracy(best.correctPredictions, best.wrongPredictions)}% accuracy` : "" },
-    { label: "Most predicted", value: mostPicked?.[0] ?? "—", detail: mostPicked ? `${mostPicked[1]} picks` : "" },
-    { label: "Most successful team", value: bestTeam?.played ? bestTeam.fullName : "—", detail: bestTeam?.played ? `${bestTeam.winPct}% win rate` : "" },
-    { label: "Upset victories", value: String(upsets.length), detail: "underdog wins" },
+    {
+      label: "Best predictor",
+      value: best?.user.name ?? "—",
+      detail: best ? `${accuracy(best.correctPredictions, best.wrongPredictions)}% accuracy` : "",
+      tip: "The user with the highest total prediction points, among users with at least 3 scored predictions. Accuracy = (correct ÷ total scored predictions) × 100.",
+    },
+    {
+      label: "Most predicted",
+      value: mostPicked?.[0] ?? "—",
+      detail: mostPicked ? `${mostPicked[1]} picks` : "",
+      tip: "The player or pair chosen most often across all match predictions — the crowd favourite.",
+    },
+    {
+      label: "Most successful team",
+      value: bestTeam?.played ? bestTeam.fullName : "—",
+      detail: bestTeam?.played ? `${bestTeam.winPct}% win rate` : "",
+      tip: "Highest win rate = matches won ÷ matches played × 100. A team 'plays' a match when all the players on one side belong to it. Percentage-based, so 6/10 beats 8/15.",
+    },
+    {
+      label: "Upset victories",
+      value: String(upsets.length),
+      detail: "underdog wins",
+      tip: "Completed matches where the designated underdog won (marked as an upset by the admin). Correctly predicting these earns extra points.",
+    },
     {
       label: "Most valuable player",
       value: mvp?.player.name ?? "—",
@@ -128,7 +148,12 @@ export default async function StatsPage() {
         : "Awarded after the first completed match",
       tip: "Performance-based score: Win Rate × 0.6 (dominant factor, up to 60) + Wins × 5 + Matches Played × 2 + a small auction bonus (price ÷ highest price × 10, max 10). Winning matches always outweighs a high auction price; price only separates players with similar performance. Requires at least 1 completed match.",
     },
-    { label: "Toughest luck", value: worst && worst !== best ? worst.user.name : "—", detail: worst && worst !== best ? `${accuracy(worst.correctPredictions, worst.wrongPredictions)}% accuracy` : "" },
+    {
+      label: "Toughest luck",
+      value: worst && worst !== best ? worst.user.name : "—",
+      detail: worst && worst !== best ? `${accuracy(worst.correctPredictions, worst.wrongPredictions)}% accuracy` : "",
+      tip: "Lowest prediction accuracy among users with at least 3 scored predictions. All in good fun. 😅",
+    },
   ];
 
   return (
@@ -158,7 +183,15 @@ export default async function StatsPage() {
       {teamStats.some((t) => t.sportsDayPoints > 0) && (
         <Card>
           <CardHeader>
-            <CardTitle>🏆 Sports Day Team Standings</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+              🏆 Sports Day Team Standings
+              <InfoTip>
+                Real tournament points, not prediction points: for each completed
+                match, the winning side&apos;s team earns that match&apos;s Winner
+                Points and the other team gets Runner-up Points (values from the
+                official schedule, e.g. finals are worth more).
+              </InfoTip>
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             {[...teamStats]
@@ -198,7 +231,14 @@ export default async function StatsPage() {
       {topBuys.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>💰 Top Auction Buys</CardTitle>
+            <CardTitle className="flex items-center gap-1.5">
+              💰 Top Auction Buys
+              <InfoTip>
+                The five most expensive players from the auction. Purely about
+                the price paid — see &quot;Most valuable player&quot; for
+                performance-based value.
+              </InfoTip>
+            </CardTitle>
           </CardHeader>
           <CardContent className="divide-y divide-border/40 p-0 px-5 pb-2">
             {topBuys.map((p, i) => (
