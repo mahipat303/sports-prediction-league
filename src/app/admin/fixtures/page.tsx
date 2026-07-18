@@ -8,6 +8,7 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { SearchableSelect, type SelectOption } from "@/components/searchable-select";
 
 export const dynamic = "force-dynamic";
 
@@ -20,17 +21,57 @@ const statusVariant: Record<string, "secondary" | "warning" | "live" | "success"
 };
 
 export default async function AdminFixturesPage() {
-  const [fixtures, sports] = await Promise.all([
+  const [fixtures, sports, players] = await Promise.all([
     prisma.fixture.findMany({
       include: { sport: true, _count: { select: { predictions: true } } },
       orderBy: { startTime: "asc" },
     }),
     prisma.sport.findMany({ orderBy: { name: "asc" } }),
+    prisma.player.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
   ]);
 
   const placeholders = fixtures.filter(
     (f) => f.isPlaceholder && f.status !== "COMPLETED"
   );
+
+  // Build intelligent option lists for placeholder resolution, per sport +
+  // category: winners of completed matches (most likely to advance) first,
+  // then real participant labels from that bracket, then all player names.
+  const playerNames = players.map((p) => p.name);
+  const winnersByKey = new Map<string, Set<string>>();
+  const participantsByKey = new Map<string, Set<string>>();
+  for (const f of fixtures) {
+    const key = `${f.sportId}|${f.matchCategory}`;
+    if (f.status === "COMPLETED" && f.winnerSide) {
+      const w = f.winnerSide === 1 ? f.side1Label : f.side2Label;
+      (winnersByKey.get(key) ?? winnersByKey.set(key, new Set()).get(key)!).add(w);
+    }
+    if (!f.isPlaceholder) {
+      const set = participantsByKey.get(key) ?? participantsByKey.set(key, new Set()).get(key)!;
+      set.add(f.side1Label);
+      set.add(f.side2Label);
+    }
+  }
+
+  const optionsFor = (sportId: string, category: string): SelectOption[] => {
+    const key = `${sportId}|${category}`;
+    const winners = [...(winnersByKey.get(key) ?? [])];
+    const participants = [...(participantsByKey.get(key) ?? [])];
+    const seen = new Set<string>();
+    const opts: SelectOption[] = [];
+    for (const w of winners) {
+      if (!seen.has(w)) { seen.add(w); opts.push({ value: w, label: `🏆 ${w}` }); }
+    }
+    for (const p of participants) {
+      if (!seen.has(p)) { seen.add(p); opts.push({ value: p, label: p }); }
+    }
+    for (const n of playerNames) {
+      if (!seen.has(n)) { seen.add(n); opts.push({ value: n, label: n }); }
+    }
+    return opts;
+  };
+  const hasWinners = (sportId: string, category: string) =>
+    (winnersByKey.get(`${sportId}|${category}`)?.size ?? 0) > 0;
 
   return (
     <div className="space-y-6">
@@ -74,23 +115,46 @@ export default async function AdminFixturesPage() {
               Replace &quot;Winner Group A&quot; style labels with real names once earlier
               rounds finish. Predictions open automatically when both sides are real.
             </p>
-            {placeholders.map((fixture) => (
-              <form
-                key={fixture.id}
-                action={updateFixtureSides}
-                className="flex flex-wrap items-center gap-2 rounded-xl border border-border/50 p-3 text-sm"
-              >
-                <input type="hidden" name="fixtureId" value={fixture.id} />
-                <Badge variant="secondary">{fixture.sport.icon} {fixture.sport.name}</Badge>
-                <span className="text-xs text-muted-foreground">
-                  {fixture.matchCategory} · {fixture.stage}
-                </span>
-                <Input name="side1Label" defaultValue={fixture.side1Label} className="w-52" />
-                <span className="text-xs font-bold">vs</span>
-                <Input name="side2Label" defaultValue={fixture.side2Label} className="w-52" />
-                <Button type="submit" size="sm">Update</Button>
-              </form>
-            ))}
+            {placeholders.map((fixture) => {
+              const options = optionsFor(fixture.sportId, fixture.matchCategory);
+              return (
+                <form
+                  key={fixture.id}
+                  action={updateFixtureSides}
+                  className="space-y-2 rounded-xl border border-border/50 p-3 text-sm"
+                >
+                  <input type="hidden" name="fixtureId" value={fixture.id} />
+                  <div className="flex flex-wrap items-center gap-2">
+                    <Badge variant="secondary">{fixture.sport.icon} {fixture.sport.name}</Badge>
+                    <span className="text-xs text-muted-foreground">
+                      {fixture.matchCategory} · {fixture.stage}
+                    </span>
+                  </div>
+                  {!hasWinners(fixture.sportId, fixture.matchCategory) && (
+                    <p className="text-xs text-amber-500">
+                      No eligible winners available yet — complete the earlier
+                      matches first, or pick a participant below.
+                    </p>
+                  )}
+                  <div className="flex flex-wrap items-center gap-2">
+                    <SearchableSelect
+                      name="side1Label"
+                      options={options}
+                      defaultValue={fixture.side1Label}
+                      className="w-56"
+                    />
+                    <span className="text-xs font-bold">vs</span>
+                    <SearchableSelect
+                      name="side2Label"
+                      options={options}
+                      defaultValue={fixture.side2Label}
+                      className="w-56"
+                    />
+                    <Button type="submit" size="sm">Update</Button>
+                  </div>
+                </form>
+              );
+            })}
           </CardContent>
         </Card>
       )}

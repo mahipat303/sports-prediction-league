@@ -1,5 +1,6 @@
 import { prisma } from "@/lib/prisma";
 import { accuracy, formatCurrency } from "@/lib/utils";
+import { computeTeamStandings } from "@/lib/standings";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoTip } from "@/components/ui/tooltip";
 import { StatsCharts } from "@/components/stats-charts";
@@ -76,13 +77,14 @@ export default async function StatsPage() {
     pickCounts.set(label, (pickCounts.get(label) ?? 0) + 1);
   }
 
-  // Team success: Sports Day points earned via winning sides + win rate
+  // Team win/played/won come from the shared standings helper (single source
+  // of truth with the Leaderboard). Sports Day points stay here since they use
+  // the schedule's winner/runner-up point values.
+  const standings = computeTeamStandings(teams, fixtures);
   const teamStats = teams.map((team) => {
+    const st = standings.find((s) => s.teamId === team.id)!;
     const played = fixtures.filter(
       (f) => f.side1TeamId === team.id || f.side2TeamId === team.id
-    );
-    const won = played.filter((f) =>
-      f.winnerSide === 1 ? f.side1TeamId === team.id : f.side2TeamId === team.id
     );
     const sportsDayPoints = played.reduce((sum, f) => {
       const isWinner =
@@ -93,9 +95,9 @@ export default async function StatsPage() {
       name: team.shortName,
       fullName: team.name,
       color: team.color,
-      played: played.length,
-      won: won.length,
-      winPct: played.length ? Math.round((won.length / played.length) * 100) : 0,
+      played: st.played,
+      won: st.won,
+      winPct: st.winPct,
       sportsDayPoints,
     };
   });
