@@ -5,6 +5,9 @@ import { accuracy, cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
+import { LeaderboardTabs } from "@/components/leaderboard-tabs";
+import { TournamentStandings } from "@/components/tournament-standings";
+import { computeTeamStandings, computePlayerStandings } from "@/lib/standings";
 
 export const dynamic = "force-dynamic";
 
@@ -12,22 +15,31 @@ const medals = ["🥇", "🥈", "🥉"];
 
 export default async function LeaderboardPage() {
   const session = await auth();
-  const entries = await prisma.leaderboardEntry.findMany({
-    orderBy: [{ totalPoints: "desc" }, { correctPredictions: "desc" }],
-    include: { user: true },
-  });
+  const [entries, teams, fixtures, players] = await Promise.all([
+    prisma.leaderboardEntry.findMany({
+      orderBy: [{ totalPoints: "desc" }, { correctPredictions: "desc" }],
+      include: { user: true },
+    }),
+    prisma.team.findMany(),
+    prisma.fixture.findMany({
+      where: { status: "COMPLETED" },
+      select: { side1TeamId: true, side2TeamId: true, winnerSide: true, status: true },
+    }),
+    prisma.player.findMany({
+      include: {
+        team: true,
+        fixturePlayers: {
+          include: { fixture: { select: { status: true, winnerSide: true } } },
+        },
+      },
+    }),
+  ]);
 
-  return (
+  const teamStandings = computeTeamStandings(teams, fixtures);
+  const playerStandings = computePlayerStandings(players);
+
+  const predictionPanel = (
     <div className="space-y-6">
-      <div>
-        <h1 className="flex items-center gap-2 text-2xl font-bold">
-          <Trophy className="h-6 w-6 text-amber-500" /> Leaderboard
-        </h1>
-        <p className="text-sm text-muted-foreground">
-          Who reads the office best? Updated instantly after every result.
-        </p>
-      </div>
-
       {/* Podium for top 3 */}
       {entries.length >= 3 && (
         <div className="grid grid-cols-3 gap-3">
@@ -132,6 +144,24 @@ export default async function LeaderboardPage() {
           )}
         </CardContent>
       </Card>
+    </div>
+  );
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h1 className="flex items-center gap-2 text-2xl font-bold">
+          <Trophy className="h-6 w-6 text-amber-500" /> Leaderboard
+        </h1>
+        <p className="text-sm text-muted-foreground">
+          Prediction points and the live tournament standings.
+        </p>
+      </div>
+
+      <LeaderboardTabs
+        prediction={predictionPanel}
+        standings={<TournamentStandings teams={teamStandings} players={playerStandings} />}
+      />
     </div>
   );
 }

@@ -1,10 +1,12 @@
 import { redirect } from "next/navigation";
-import { CheckCircle2, XCircle, CircleDashed } from "lucide-react";
+import { CheckCircle2, XCircle, CircleDashed, Lock, Pencil } from "lucide-react";
 import { auth } from "@/lib/auth";
 import { prisma } from "@/lib/prisma";
+import { getFixtures } from "@/lib/fixtures";
 import { accuracy, cn, formatDateTime, CONFIDENCE_META } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { MatchCard } from "@/components/match-card";
 
 export const dynamic = "force-dynamic";
 
@@ -12,7 +14,7 @@ export default async function PredictionsPage() {
   const session = await auth();
   if (!session?.user) redirect("/login");
 
-  const [predictions, entry, history] = await Promise.all([
+  const [predictions, entry, history, allFixtures] = await Promise.all([
     prisma.prediction.findMany({
       where: { userId: session.user.id },
       include: { fixture: { include: { sport: true } } },
@@ -24,7 +26,19 @@ export default async function PredictionsPage() {
       orderBy: { createdAt: "desc" },
       take: 20,
     }),
+    getFixtures(session.user.id),
   ]);
+
+  // Predictions the user can still change (window open) — reuse the same
+  // MatchCard + submitPrediction used on the Fixtures page (no new logic).
+  const editable = allFixtures.filter((f) => f.myPrediction && f.isOpen);
+
+  // A short lock reason for already-decided predictions (display only).
+  const lockReason = (p: (typeof predictions)[number]) => {
+    if (p.fixture.winnerSide) return "Result declared";
+    if (p.fixture.status === "LIVE") return "Match started";
+    return "Predictions closed";
+  };
 
   return (
     <div className="space-y-6">
@@ -53,6 +67,24 @@ export default async function PredictionsPage() {
           </Card>
         ))}
       </div>
+
+      {editable.length > 0 && (
+        <section className="space-y-3">
+          <h2 className="flex items-center gap-2 text-lg font-semibold">
+            <Pencil className="h-4 w-4 text-primary" /> Open for Editing
+            <Badge variant="secondary">{editable.length}</Badge>
+          </h2>
+          <p className="text-sm text-muted-foreground">
+            These matches are still open — tap a side or change your confidence
+            to update your pick. Changes save instantly.
+          </p>
+          <div className="grid gap-4 lg:grid-cols-2">
+            {editable.map((fixture) => (
+              <MatchCard key={fixture.id} fixture={fixture} />
+            ))}
+          </div>
+        </section>
+      )}
 
       <div className="grid gap-6 lg:grid-cols-3">
         <section className="space-y-3 lg:col-span-2">
@@ -100,6 +132,17 @@ export default async function PredictionsPage() {
                       )}{" "}
                       · {formatDateTime(p.fixture.startTime)}
                     </p>
+                    {p.isCorrect === null &&
+                      (p.fixture.status === "SCHEDULED" &&
+                      new Date(p.fixture.lockTime) > new Date() ? (
+                        <p className="mt-0.5 text-[11px] font-medium text-primary">
+                          ✏️ Editable above
+                        </p>
+                      ) : (
+                        <p className="mt-0.5 flex items-center gap-1 text-[11px] font-medium text-amber-500">
+                          <Lock className="h-3 w-3" /> {lockReason(p)}
+                        </p>
+                      ))}
                   </div>
                   <div className="text-right">
                     <Badge variant="outline" className={cn("mb-1", conf.className)}>
