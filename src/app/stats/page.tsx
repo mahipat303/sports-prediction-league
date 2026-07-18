@@ -1,12 +1,13 @@
 import { prisma } from "@/lib/prisma";
 import { accuracy, formatCurrency } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { InfoTip } from "@/components/ui/tooltip";
 import { StatsCharts } from "@/components/stats-charts";
 
 export const dynamic = "force-dynamic";
 
 export default async function StatsPage() {
-  const [fixtures, predictions, teams, topBuys, entries] = await Promise.all([
+  const [fixtures, predictions, teams, allPlayers, entries] = await Promise.all([
     prisma.fixture.findMany({
       where: { status: "COMPLETED" },
       include: { sport: true },
@@ -17,15 +18,42 @@ export default async function StatsPage() {
     }),
     prisma.team.findMany(),
     prisma.player.findMany({
-      include: { team: true },
-      orderBy: { auctionPrice: "desc" },
-      take: 5,
+      include: {
+        team: true,
+        fixturePlayers: {
+          include: { fixture: { select: { status: true, winnerSide: true } } },
+        },
+      },
     }),
     prisma.leaderboardEntry.findMany({
       include: { user: true },
       orderBy: { totalPoints: "desc" },
     }),
   ]);
+
+  const topBuys = [...allPlayers]
+    .sort((a, b) => b.auctionPrice - a.auctionPrice)
+    .slice(0, 5);
+
+  // MVP: performance-first score. Win rate dominates; auction price is a
+  // minor bonus so it separates near-equals but never outweighs performance.
+  //   score = winRate×0.6 + wins×5 + played×2 + (price ÷ maxPrice)×10
+  const maxPrice = Math.max(1, ...allPlayers.map((p) => p.auctionPrice));
+  const mvpRanking = allPlayers
+    .map((p) => {
+      const done = p.fixturePlayers.filter((fp) => fp.fixture.status === "COMPLETED");
+      const won = done.filter((fp) => fp.fixture.winnerSide === fp.side).length;
+      const winRate = done.length ? (won / done.length) * 100 : 0;
+      const score =
+        winRate * 0.6 + won * 5 + done.length * 2 + (p.auctionPrice / maxPrice) * 10;
+      return { player: p, played: done.length, won, winRate, score };
+    })
+    .filter((m) => m.played >= 1)
+    .sort(
+      (a, b) =>
+        b.score - a.score || b.winRate - a.winRate || b.player.auctionPrice - a.player.auctionPrice
+    );
+  const mvp = mvpRanking[0];
 
   // Accuracy by sport / match category; most predicted side labels
   const bySport = new Map<string, { correct: number; total: number }>();
@@ -87,12 +115,19 @@ export default async function StatsPage() {
   const mostPicked = [...pickCounts.entries()].sort((a, b) => b[1] - a[1])[0];
   const bestTeam = [...teamStats].sort((a, b) => b.winPct - a.winPct)[0];
 
-  const highlights = [
+  const highlights: { label: string; value: string; detail: string; tip?: string }[] = [
     { label: "Best predictor", value: best?.user.name ?? "—", detail: best ? `${accuracy(best.correctPredictions, best.wrongPredictions)}% accuracy` : "" },
     { label: "Most predicted", value: mostPicked?.[0] ?? "—", detail: mostPicked ? `${mostPicked[1]} picks` : "" },
     { label: "Most successful team", value: bestTeam?.played ? bestTeam.fullName : "—", detail: bestTeam?.played ? `${bestTeam.winPct}% win rate` : "" },
     { label: "Upset victories", value: String(upsets.length), detail: "underdog wins" },
-    { label: "Most valuable player", value: topBuys[0]?.name ?? "—", detail: topBuys[0] ? formatCurrency(topBuys[0].auctionPrice) : "" },
+    {
+      label: "Most valuable player",
+      value: mvp?.player.name ?? "—",
+      detail: mvp
+        ? `${Math.round(mvp.score)} pts · ${mvp.won}W/${mvp.played - mvp.won}L · ${Math.round(mvp.winRate)}% wins`
+        : "Awarded after the first completed match",
+      tip: "Performance-based score: Win Rate × 0.6 (dominant factor, up to 60) + Wins × 5 + Matches Played × 2 + a small auction bonus (price ÷ highest price × 10, max 10). Winning matches always outweighs a high auction price; price only separates players with similar performance. Requires at least 1 completed match.",
+    },
     { label: "Toughest luck", value: worst && worst !== best ? worst.user.name : "—", detail: worst && worst !== best ? `${accuracy(worst.correctPredictions, worst.wrongPredictions)}% accuracy` : "" },
   ];
 
@@ -106,10 +141,13 @@ export default async function StatsPage() {
       </div>
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
-        {highlights.map(({ label, value, detail }) => (
+        {highlights.map(({ label, value, detail, tip }) => (
           <Card key={label}>
             <CardContent className="p-4">
-              <p className="text-xs uppercase tracking-wide text-muted-foreground">{label}</p>
+              <p className="flex items-center gap-1 text-xs uppercase tracking-wide text-muted-foreground">
+                {label}
+                {tip && <InfoTip>{tip}</InfoTip>}
+              </p>
               <p className="mt-1 truncate text-lg font-bold">{value}</p>
               {detail && <p className="text-xs text-muted-foreground">{detail}</p>}
             </CardContent>
