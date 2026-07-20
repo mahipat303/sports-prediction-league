@@ -149,6 +149,10 @@ model Fixture {
   stage          String? // e.g. "Group A Initial", "Grand Final"
   side1Label     String // display label, e.g. "Parth" or "Chintan/Purvang"
   side2Label     String
+  // Original placeholder reference (e.g. "Winner Group A"), kept after the
+  // side is resolved so the bracket can be re-derived if a result is edited.
+  side1Source    String?
+  side2Source    String?
   side1TeamId    String? // resolved owning team, when all side players share one
   side2TeamId    String?
   isPlaceholder  Boolean        @default(false) // participants not yet decided

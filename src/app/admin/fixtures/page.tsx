@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import {
   createFixture, setFixtureStatus, deleteFixture, updateFixtureSides, setFixtureLiveUrl,
+  runBracketProgression,
 } from "@/app/admin/actions";
 import { formatDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -108,12 +109,20 @@ export default async function AdminFixturesPage() {
       {placeholders.length > 0 && (
         <Card>
           <CardHeader>
-            <CardTitle>🔁 Resolve Placeholder Matches</CardTitle>
+            <CardTitle className="flex flex-wrap items-center gap-3">
+              🔁 Resolve Placeholder Matches
+              <form action={runBracketProgression} className="ml-auto">
+                <Button type="submit" size="sm" variant="outline">
+                  ⚡ Run bracket progression
+                </Button>
+              </form>
+            </CardTitle>
           </CardHeader>
           <CardContent className="space-y-2">
             <p className="text-sm text-muted-foreground">
-              Replace &quot;Winner Group A&quot; style labels with real names once earlier
-              rounds finish. Predictions open automatically when both sides are real.
+              These resolve <strong>automatically</strong> when you publish a result —
+              winners flow through Group → Group Final → Semi → Grand Final. Use the
+              dropdowns below only as a manual override.
             </p>
             {placeholders.map((fixture) => {
               const options = optionsFor(fixture.sportId, fixture.matchCategory);

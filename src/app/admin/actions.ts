@@ -7,6 +7,7 @@ import { requireAdmin } from "@/lib/auth";
 import { evaluateFixture, evaluateChampionPredictions, recomputeLeaderboardEntry, getSettings, DEFAULT_SETTINGS, type SettingKey } from "@/lib/scoring";
 import { importWorkbook, type ImportResult } from "@/lib/excel-import";
 import { resolvePlayerFixtures, reresolveAllFixtures } from "@/lib/fixture-resolution";
+import { propagateBracket } from "@/lib/bracket";
 import { NotificationType, PlayerCategory } from "@prisma/client";
 
 function revalidateAll() {
@@ -64,6 +65,11 @@ export async function enterResult(formData: FormData) {
   });
 
   await evaluateFixture(fixtureId);
+  // Advance any downstream placeholder fixtures that this result decides.
+  const advanced = await propagateBracket();
+  if (advanced.length) {
+    console.log(`Bracket progression: ${advanced.length} placeholder side(s) resolved`);
+  }
   revalidateAll();
   return;
 }
@@ -109,6 +115,8 @@ export async function updateResult(formData: FormData) {
   });
 
   await evaluateFixture(fixtureId, "reevaluate");
+  // Re-derive downstream sides so a corrected result rewrites the bracket.
+  await propagateBracket();
   revalidateAll();
   return { success: true };
 }
@@ -193,6 +201,18 @@ export async function setFixtureLiveUrl(formData: FormData) {
     where: { id: fixtureId },
     data: { liveUrl: raw || null },
   });
+  revalidateAll();
+  return;
+}
+
+/**
+ * Manually re-run bracket progression. Normally unnecessary (it runs
+ * automatically on every result entry/edit) — kept as an admin fallback.
+ */
+export async function runBracketProgression() {
+  await requireAdmin();
+  const changes = await propagateBracket();
+  console.log(`Bracket progression: ${changes.length} placeholder side(s) resolved`);
   revalidateAll();
   return;
 }
