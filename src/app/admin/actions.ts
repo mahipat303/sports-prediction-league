@@ -373,17 +373,167 @@ export async function setTournament(formData: FormData) {
   const rawLock = String(formData.get("championLockTime") ?? "");
   const championLockTime = rawLock ? new Date(rawLock) : eventDate;
 
-  // Preserve an existing champion pick / lock if we're just updating the same event.
+  // Update the active tournament in place. Creating a new row each save would
+  // orphan every ChampionPrediction (they're tied to tournamentId).
   const existing = await prisma.tournament.findFirst({ where: { isActive: true } });
-  await prisma.tournament.updateMany({ data: { isActive: false } });
-  await prisma.tournament.create({
-    data: {
-      name,
-      eventDate,
-      isActive: true,
-      championLockTime: isNaN(championLockTime.getTime()) ? eventDate : championLockTime,
-      championTeamId: existing?.championTeamId ?? null,
-    },
+  const lock = isNaN(championLockTime.getTime()) ? eventDate : championLockTime;
+
+  if (existing) {
+    await prisma.tournament.update({
+      where: { id: existing.id },
+      data: { name, eventDate, championLockTime: rawLock ? lock : existing.championLockTime ?? lock },
+    });
+  } else {
+    await prisma.tournament.create({
+      data: { name, eventDate, isActive: true, championLockTime: lock },
+    });
+  }
+  revalidateAll();
+  return;
+}
+
+// ---------- Fixture schedule editing ----------
+/** Shared: compute lockTime from a start time using the configured window. */
+async function lockFor(startTime: Date) {
+  const settings = await getSettings();
+  return new Date(startTime.getTime() - settings.LOCK_MINUTES_BEFORE_START * 60_000);
+}
+
+/** Edit a single fixture's date/time (Feature 3). */
+export async function updateFixtureSchedule(formData: FormData) {
+  await requireAdmin();
+  const fixtureId = String(formData.get("fixtureId") ?? "");
+  const raw = String(formData.get("startTime") ?? "");
+  if (!fixtureId || !raw) { console.warn("Missing fixture or time"); return; }
+  const startTime = new Date(raw);
+  if (isNaN(startTime.getTime())) { console.warn("Invalid start time"); return; }
+
+  await prisma.fixture.update({
+    where: { id: fixtureId },
+    data: { startTime, lockTime: await lockFor(startTime) },
+  });
+  revalidateAll();
+  return;
+}
+
+/**
+ * Bulk fixture editing (Feature 4). One action with a discriminated `action`
+ * value so new bulk operations (venue, court, referee…) are a new case rather
+ * than a refactor. Completed fixtures are skipped unless explicitly allowed.
+ */
+export async function bulkUpdateFixtures(formData: FormData): Promise<{
+  error?: string;
+  updated?: number;
+  skipped?: number;
+}> {
+  await requireAdmin();
+  const ids = String(formData.get("ids") ?? "").split(",").filter(Boolean);
+  const action = String(formData.get("action") ?? "");
+  const value = String(formData.get("value") ?? "");
+  const includeCompleted = formData.get("includeCompleted") === "on";
+  if (ids.length === 0 || !action) return { error: "Nothing selected" };
+
+  return bulkApply(ids, action, value, includeCompleted);
+}
+
+async function bulkApply(
+  ids: string[],
+  action: string,
+  value: string,
+  includeCompleted: boolean
+): Promise<{ error?: string; updated?: number; skipped?: number }> {
+  await requireAdmin();
+  const fixtures = await prisma.fixture.findMany({ where: { id: { in: ids } } });
+  const targets = includeCompleted
+    ? fixtures
+    : fixtures.filter((f) => f.status !== "COMPLETED");
+  const skipped = fixtures.length - targets.length;
+  let updated = 0;
+
+  for (const f of targets) {
+    let data: { startTime?: Date; lockTime?: Date; status?: "SCHEDULED" | "LOCKED" | "LIVE" | "CANCELLED" } | null = null;
+
+    if (action === "date" || action === "time" || action === "datetime") {
+      // Merge the new date and/or time onto the fixture's existing start.
+      const current = f.startTime;
+      let next: Date;
+      if (action === "datetime") {
+        next = new Date(value);
+      } else if (action === "date") {
+        const [y, m, d] = value.split("-").map(Number);
+        next = new Date(current);
+        next.setUTCFullYear(y, m - 1, d);
+      } else {
+        const [h, mi] = value.split(":").map(Number);
+        // Times are entered as IST wall-clock.
+        const ist = new Date(current.getTime() + 330 * 60_000);
+        ist.setUTCHours(h, mi, 0, 0);
+        next = new Date(ist.getTime() - 330 * 60_000);
+      }
+      if (isNaN(next.getTime())) continue;
+      data = { startTime: next, lockTime: await lockFor(next) };
+    } else if (action === "status") {
+      if (!["SCHEDULED", "LOCKED", "LIVE", "CANCELLED"].includes(value)) continue;
+      data = { status: value as "SCHEDULED" | "LOCKED" | "LIVE" | "CANCELLED" };
+    } else if (action === "openPredictions") {
+      data = { status: "SCHEDULED" };
+    } else if (action === "closePredictions") {
+      data = { status: "LOCKED" };
+    }
+
+    if (!data) continue;
+    await prisma.fixture.update({ where: { id: f.id }, data });
+    updated++;
+  }
+
+  revalidateAll();
+  return { updated, skipped };
+}
+
+/**
+ * Lock / unlock / reschedule the Tournament Winner prediction, independently
+ * of match fixtures. Lock state is expressed through `championLockTime`
+ * (already on the model), so no schema change is needed.
+ */
+export async function setChampionWindow(formData: FormData) {
+  await requireAdmin();
+  const mode = String(formData.get("mode") ?? ""); // "lock" | "unlock" | "schedule"
+  const tournament = await prisma.tournament.findFirst({ where: { isActive: true } });
+  if (!tournament) { console.warn("No active tournament"); return; }
+
+  let championLockTime: Date;
+  if (mode === "lock") {
+    championLockTime = new Date();
+  } else {
+    const raw = String(formData.get("championLockTime") ?? "");
+    const parsed = raw ? new Date(raw) : null;
+    if (parsed && !isNaN(parsed.getTime())) {
+      championLockTime = parsed;
+    } else if (mode === "unlock") {
+      // Default: open until the last scheduled match starts.
+      const last = await prisma.fixture.findFirst({ orderBy: { startTime: "desc" } });
+      championLockTime = last?.startTime ?? new Date(Date.now() + 7 * 86_400_000);
+    } else {
+      console.warn("Invalid lock time"); return;
+    }
+  }
+
+  await prisma.tournament.update({
+    where: { id: tournament.id },
+    data: { championLockTime },
+  });
+  revalidateAll();
+  return;
+}
+
+/** Show or hide the Tournament Winner card for users. */
+export async function setChampionVisibility(formData: FormData) {
+  await requireAdmin();
+  const visible = String(formData.get("visible") ?? "1") === "1" ? "1" : "0";
+  await prisma.setting.upsert({
+    where: { key: "CHAMPION_VISIBLE" },
+    create: { key: "CHAMPION_VISIBLE", value: visible },
+    update: { value: visible },
   });
   revalidateAll();
   return;
