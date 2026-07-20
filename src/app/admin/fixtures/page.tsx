@@ -1,7 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import {
   createFixture, setFixtureStatus, deleteFixture, updateFixtureSides, setFixtureLiveUrl,
-  runBracketProgression,
+  runBracketProgression, updateFixtureSchedule,
 } from "@/app/admin/actions";
 import { formatDateTime } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -10,8 +10,14 @@ import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { SearchableSelect, type SelectOption } from "@/components/searchable-select";
+import { BulkFixtureActions } from "@/components/bulk-fixture-actions";
 
 export const dynamic = "force-dynamic";
+
+function toLocalInput(date: Date) {
+  const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
+  return d.toISOString().slice(0, 16);
+}
 
 const statusVariant: Record<string, "secondary" | "warning" | "live" | "success" | "destructive"> = {
   SCHEDULED: "secondary",
@@ -170,6 +176,22 @@ export default async function AdminFixturesPage() {
 
       <Card>
         <CardHeader>
+          <CardTitle>⚡ Bulk Edit Fixtures</CardTitle>
+        </CardHeader>
+        <CardContent>
+          <BulkFixtureActions
+            fixtures={fixtures.map((f) => ({
+              id: f.id,
+              label: `${f.sport.icon ?? ""} ${f.sport.name} · ${f.matchCategory} · ${f.side1Label} vs ${f.side2Label}`,
+              status: f.status,
+              startTime: formatDateTime(f.startTime),
+            }))}
+          />
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
           <CardTitle>All Fixtures ({fixtures.length})</CardTitle>
         </CardHeader>
         <CardContent className="space-y-2 p-3 sm:p-5">
@@ -215,6 +237,17 @@ export default async function AdminFixturesPage() {
                   </form>
                 )}
               </div>
+              <form action={updateFixtureSchedule} className="flex w-full items-center gap-2">
+                <span className="text-xs text-muted-foreground">🗓️ Date &amp; time</span>
+                <Input
+                  name="startTime"
+                  type="datetime-local"
+                  defaultValue={toLocalInput(fixture.startTime)}
+                  className="h-8 w-56"
+                />
+                <input type="hidden" name="fixtureId" value={fixture.id} />
+                <Button size="sm" variant="outline" type="submit">Save time</Button>
+              </form>
               <form action={setFixtureLiveUrl} className="flex w-full items-center gap-2">
                 <span className="text-xs text-muted-foreground">📺 Live link</span>
                 <Input

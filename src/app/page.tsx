@@ -169,7 +169,7 @@ export default async function HomePage() {
 
         {/* Champion + leaderboard + teams preview */}
         <section className="space-y-4">
-          {teams.length > 0 && (
+          {teams.length > 0 && settings.CHAMPION_VISIBLE === 1 && (
             <ChampionPrediction
               teams={teams.map((t) => ({
                 id: t.id,

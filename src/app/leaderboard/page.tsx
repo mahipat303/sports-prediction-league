@@ -5,7 +5,7 @@ import { accuracy, cn } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { LeaderboardTabs } from "@/components/leaderboard-tabs";
+import { Tabs } from "@/components/tabs";
 import { TournamentStandings } from "@/components/tournament-standings";
 import { computeTeamStandings, computePlayerStandings } from "@/lib/standings";
 
@@ -158,9 +158,15 @@ export default async function LeaderboardPage() {
         </p>
       </div>
 
-      <LeaderboardTabs
-        prediction={predictionPanel}
-        standings={<TournamentStandings teams={teamStandings} players={playerStandings} />}
+      <Tabs
+        items={[
+          { key: "prediction", label: "🏆 Prediction Leaderboard", content: predictionPanel },
+          {
+            key: "standings",
+            label: "🎮 Tournament Standings",
+            content: <TournamentStandings teams={teamStandings} players={playerStandings} />,
+          },
+        ]}
       />
     </div>
   );

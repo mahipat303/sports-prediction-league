@@ -5,6 +5,8 @@ import { Button } from "@/components/ui/button";
 import { setTournament, setChampion } from "@/app/admin/actions";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
+import { ChampionAdmin } from "@/components/champion-admin";
+import { getSettings } from "@/lib/scoring";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +32,10 @@ export default async function AdminDashboard() {
   const championPicks = await prisma.championPrediction.count({
     where: { tournament: { isActive: true } },
   });
+  const settings = await getSettings();
+  const championTeamName = tournament?.championTeamId
+    ? teamList.find((t) => t.id === tournament.championTeamId)?.name ?? null
+    : null;
 
   const stats = [
     { label: "Teams", value: teams, href: "/admin/teams" },
@@ -100,9 +106,18 @@ export default async function AdminDashboard() {
         </CardContent>
       </Card>
 
+      <ChampionAdmin
+        lockTime={tournament?.championLockTime ?? null}
+        eventDate={tournament?.eventDate ?? null}
+        championName={championTeamName}
+        pickCount={championPicks}
+        bonus={settings.CHAMPION_BONUS}
+        visible={settings.CHAMPION_VISIBLE === 1}
+      />
+
       <Card>
         <CardHeader>
-          <CardTitle>👑 Tournament Champion</CardTitle>
+          <CardTitle>👑 Declare Tournament Champion</CardTitle>
         </CardHeader>
         <CardContent>
           <p className="mb-3 text-sm text-muted-foreground">

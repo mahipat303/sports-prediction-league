@@ -15,6 +15,7 @@ export const DEFAULT_SETTINGS = {
   CONFIDENCE_MEDIUM_MULT: 1.5,
   CONFIDENCE_HIGH_MULT: 2,
   CHAMPION_BONUS: 50, // bonus for correctly predicting the tournament winner
+  CHAMPION_VISIBLE: 1, // 1 = show the Tournament Winner card, 0 = hide it
   LOCK_MINUTES_BEFORE_START: 5,
 } as const;
 
