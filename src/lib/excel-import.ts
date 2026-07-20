@@ -61,21 +61,33 @@ function normalizeCategory(value: string): PlayerCategory | null {
   return null;
 }
 
-/** Parse "Mon, Jul 20, 2026", plain date strings, Excel serials, or Date cells. */
+/** The office runs on IST; schedule times in the workbook are IST wall-clock. */
+export const IST_OFFSET_MIN = 330;
+
+/**
+ * Parse "Mon, Jul 20, 2026", plain date strings, Excel serials, or Date cells.
+ *
+ * The workbook's date/time is an IST wall-clock value, so the instant is built
+ * explicitly from the IST offset rather than the server's local timezone —
+ * otherwise importing from a UTC host (Vercel) shifts every match by +5:30.
+ */
 function parseScheduleDate(dateCell: Cell, timeCell: Cell): Date | null {
-  let base: Date | null = null;
+  let y: number, mo: number, d: number;
   if (dateCell instanceof Date) {
-    base = new Date(dateCell);
+    y = dateCell.getFullYear(); mo = dateCell.getMonth(); d = dateCell.getDate();
   } else if (typeof dateCell === "number") {
     const parsed = XLSX.SSF.parse_date_code(dateCell);
-    if (parsed) base = new Date(parsed.y, parsed.m - 1, parsed.d);
+    if (!parsed) return null;
+    y = parsed.y; mo = parsed.m - 1; d = parsed.d;
   } else if (typeof dateCell === "string" && dateCell.trim()) {
     // Strip a leading day-of-week ("Mon, Jul 20, 2026" → "Jul 20, 2026")
     const cleaned = dateCell.trim().replace(/^[A-Za-z]{3,9},\s*/, "");
-    const d = new Date(cleaned);
-    if (!isNaN(d.getTime())) base = d;
+    const parsed = new Date(cleaned);
+    if (isNaN(parsed.getTime())) return null;
+    y = parsed.getFullYear(); mo = parsed.getMonth(); d = parsed.getDate();
+  } else {
+    return null;
   }
-  if (!base || isNaN(base.getTime())) return null;
 
   let hours = 10, minutes = 0; // default match time when unspecified
   if (typeof timeCell === "number" && timeCell > 0 && timeCell < 1) {
@@ -94,8 +106,8 @@ function parseScheduleDate(dateCell: Cell, timeCell: Cell): Date | null {
       minutes = Number(match[2]);
     }
   }
-  base.setHours(hours, minutes, 0, 0);
-  return base;
+  // Interpret y/mo/d hours:minutes as IST, independent of the server timezone.
+  return new Date(Date.UTC(y, mo, d, hours, minutes) - IST_OFFSET_MIN * 60_000);
 }
 
 /**
@@ -474,6 +486,15 @@ async function importSchedule(
     const startTime = parseScheduleDate(row[cols.date], cols.time !== -1 ? row[cols.time] : null);
     if (!startTime) {
       result.errors.push(`Schedule row ${rowNo}: missing or invalid Scheduled Date`);
+      continue;
+    }
+    // Catch typo'd years (e.g. "Jul 25, 2206") before they reach the schedule.
+    const yr = startTime.getUTCFullYear();
+    const nowYr = new Date().getUTCFullYear();
+    if (yr < nowYr - 1 || yr > nowYr + 5) {
+      result.errors.push(
+        `Schedule row ${rowNo}: implausible year ${yr} in Scheduled Date — fix the sheet (row skipped)`
+      );
       continue;
     }
 
