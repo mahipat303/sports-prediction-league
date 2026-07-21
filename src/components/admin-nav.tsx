@@ -10,6 +10,7 @@ const tabs = [
   { href: "/admin/fixtures", label: "Fixtures" },
   { href: "/admin/results", label: "Results" },
   { href: "/admin/insights", label: "Insights" },
+  { href: "/admin/points", label: "Team Points" },
   { href: "/admin/teams", label: "Teams" },
   { href: "/admin/players", label: "Players" },
   { href: "/admin/users", label: "Users" },

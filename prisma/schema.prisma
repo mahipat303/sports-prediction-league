@@ -86,6 +86,7 @@ model Team {
   auctionEvents AuctionEvent[]
   championPredictions ChampionPrediction[]
   championOf    Tournament[] @relation("Champion")
+  pointsAwards  TeamPointsAward[]
 }
 
 model Sport {
@@ -96,6 +97,7 @@ model Sport {
 
   fixtures    Fixture[]
   assignments PlayerSportAssignment[]
+  pointRules  TeamPointRule[]
 }
 
 model Player {
@@ -176,6 +178,7 @@ model Fixture {
   players     FixturePlayer[]
   predictions Prediction[]
   resultEdits ResultEdit[]
+  pointsAwards TeamPointsAward[]
 
   @@index([startTime])
   @@index([status])
@@ -269,6 +272,48 @@ model UserAchievement {
   achievement   Achievement @relation(fields: [achievementId], references: [id], onDelete: Cascade)
 
   @@unique([userId, achievementId])
+}
+
+enum TeamPointType {
+  CHAMPION
+  RUNNER_UP
+  MANUAL
+}
+
+// Admin-configured Sports Day points per sport + match category. This is the
+// source of truth: saving a rule syncs the values onto matching fixtures, so
+// every final of that sport/category awards the same points automatically.
+model TeamPointRule {
+  id             String   @id @default(cuid())
+  sportId        String
+  matchCategory  String
+  winnerPoints   Float    @default(0)
+  runnerUpPoints Float    @default(0)
+  updatedAt      DateTime @updatedAt
+
+  sport Sport @relation(fields: [sportId], references: [id], onDelete: Cascade)
+
+  @@unique([sportId, matchCategory])
+}
+
+// Auditable ledger of Sports Day points awarded to office teams. Rebuilt
+// per fixture on every result entry/edit (delete-then-recreate), so it is
+// idempotent and always reflects the current published results.
+// Entirely separate from user prediction points (PointsHistory).
+model TeamPointsAward {
+  id        String        @id @default(cuid())
+  teamId    String
+  fixtureId String? // null for manual adjustments
+  points    Float
+  type      TeamPointType
+  reason    String
+  createdAt DateTime      @default(now())
+
+  team    Team     @relation(fields: [teamId], references: [id], onDelete: Cascade)
+  fixture Fixture? @relation(fields: [fixtureId], references: [id], onDelete: Cascade)
+
+  @@index([teamId])
+  @@index([fixtureId])
 }
 
 // Audit trail for admin corrections to published match results.

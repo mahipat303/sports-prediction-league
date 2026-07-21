@@ -8,6 +8,7 @@ import { evaluateFixture, evaluateChampionPredictions, recomputeLeaderboardEntry
 import { importWorkbook, type ImportResult } from "@/lib/excel-import";
 import { resolvePlayerFixtures, reresolveAllFixtures } from "@/lib/fixture-resolution";
 import { propagateBracket } from "@/lib/bracket";
+import { awardTeamPointsForFixture, recomputeAllTeamPoints, seedRulesFromFixtures } from "@/lib/team-points";
 import { NotificationType, PlayerCategory } from "@prisma/client";
 
 function revalidateAll() {
@@ -65,6 +66,9 @@ export async function enterResult(formData: FormData) {
   });
 
   await evaluateFixture(fixtureId);
+  // Award real Sports Day points to the office teams (finals only).
+  const award = await awardTeamPointsForFixture(fixtureId);
+  if (award.skipped.length) console.warn("Team points skipped:", award.skipped);
   // Advance any downstream placeholder fixtures that this result decides.
   const advanced = await propagateBracket();
   if (advanced.length) {
@@ -115,6 +119,8 @@ export async function updateResult(formData: FormData) {
   });
 
   await evaluateFixture(fixtureId, "reevaluate");
+  // Re-award team points for the corrected result (idempotent).
+  await awardTeamPointsForFixture(fixtureId);
   // Re-derive downstream sides so a corrected result rewrites the bracket.
   await propagateBracket();
   revalidateAll();
@@ -551,6 +557,83 @@ export async function setChampion(formData: FormData) {
     data: { championTeamId: teamId || null },
   });
   if (teamId) await evaluateChampionPredictions(tournament.id);
+  revalidateAll();
+  return;
+}
+
+// ---------- Sports Day team points ----------
+/**
+ * Save the points a sport+category awards, and sync those values onto its
+ * fixtures so match cards and past awards stay consistent.
+ */
+export async function updateTeamPointRule(formData: FormData) {
+  await requireAdmin();
+  const sportId = String(formData.get("sportId") ?? "");
+  const matchCategory = String(formData.get("matchCategory") ?? "");
+  const winnerPoints = Number(formData.get("winnerPoints"));
+  const runnerUpPoints = Number(formData.get("runnerUpPoints"));
+  if (!sportId || !matchCategory || !Number.isFinite(winnerPoints) || !Number.isFinite(runnerUpPoints)) {
+    console.warn("Invalid point rule"); return;
+  }
+
+  await prisma.teamPointRule.upsert({
+    where: { sportId_matchCategory: { sportId, matchCategory } },
+    create: { sportId, matchCategory, winnerPoints, runnerUpPoints },
+    update: { winnerPoints, runnerUpPoints },
+  });
+
+  // Keep the finals' own values in step (drives the "🏆 20 pts" badges).
+  await prisma.fixture.updateMany({
+    where: { sportId, matchCategory, stage: { contains: "Final" } },
+    data: { winnerPoints, runnerUpPoints },
+  });
+
+  // Re-award anything already completed under this rule.
+  const done = await prisma.fixture.findMany({
+    where: { sportId, matchCategory, status: "COMPLETED" },
+    select: { id: true },
+  });
+  for (const f of done) await awardTeamPointsForFixture(f.id);
+
+  revalidateAll();
+  return;
+}
+
+/** Manual points adjustment for a team (walkover, penalty, correction). */
+export async function adjustTeamPoints(formData: FormData) {
+  await requireAdmin();
+  const teamId = String(formData.get("teamId") ?? "");
+  const points = Number(formData.get("points"));
+  const reason = String(formData.get("reason") ?? "").trim();
+  if (!teamId || !Number.isFinite(points) || points === 0 || !reason) {
+    console.warn("Provide a team, non-zero points and a reason"); return;
+  }
+  await prisma.teamPointsAward.create({
+    data: { teamId, points, type: "MANUAL", reason: `✏️ ${reason}` },
+  });
+  revalidateAll();
+  return;
+}
+
+/** Remove a manual adjustment (result-driven awards are rebuilt, not deleted). */
+export async function deleteTeamPointsAward(formData: FormData) {
+  await requireAdmin();
+  const id = String(formData.get("awardId") ?? "");
+  const award = await prisma.teamPointsAward.findUnique({ where: { id } });
+  if (!award) return;
+  if (award.type !== "MANUAL") { console.warn("Only manual adjustments can be deleted"); return; }
+  await prisma.teamPointsAward.delete({ where: { id } });
+  revalidateAll();
+  return;
+}
+
+/** Rebuild every award from current results; also seeds missing rules. */
+export async function recomputeTeamPoints() {
+  await requireAdmin();
+  await seedRulesFromFixtures();
+  const r = await recomputeAllTeamPoints();
+  console.log(`Team points recomputed: ${r.awarded} awards across ${r.fixtures} completed fixtures`);
+  if (r.skipped.length) console.warn("Skipped:", r.skipped);
   revalidateAll();
   return;
 }
