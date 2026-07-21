@@ -101,9 +101,14 @@ export function RulesContent({ v }: { v: RulesValues }) {
 
       <Section icon={Trophy} title="Leaderboard & tie-breaks">
         Your total points (match picks + all bonuses) rank you on the
-        leaderboard. If two people are tied on points, the one with more{" "}
-        <strong>correct predictions</strong> ranks higher. Top 3 are
-        highlighted. 🥇🥈🥉
+        leaderboard. Ties are broken in this order:
+        <ol className="mt-1 list-inside list-decimal space-y-0.5">
+          <li>Most <strong>total points</strong></li>
+          <li>More <strong>correct predictions</strong></li>
+          <li>Fewer <strong>wrong predictions</strong></li>
+          <li><strong>Earliest to reach</strong> that score</li>
+        </ol>
+        Top 3 are highlighted — and win prizes. 🥇🥈🥉
       </Section>
     </div>
   );

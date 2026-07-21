@@ -1,6 +1,7 @@
 import { prisma } from "@/lib/prisma";
 import { accuracy, formatCurrency } from "@/lib/utils";
 import { computeTeamStandings } from "@/lib/standings";
+import { LEADERBOARD_ORDER } from "@/lib/scoring";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { InfoTip } from "@/components/ui/tooltip";
 import { StatsCharts } from "@/components/stats-charts";
@@ -28,7 +29,7 @@ export default async function StatsPage() {
     }),
     prisma.leaderboardEntry.findMany({
       include: { user: true },
-      orderBy: { totalPoints: "desc" },
+      orderBy: LEADERBOARD_ORDER,
     }),
   ]);
 

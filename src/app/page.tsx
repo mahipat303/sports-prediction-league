@@ -3,7 +3,7 @@ import { Trophy, TrendingUp, Target, ArrowRight, Sparkles, BookOpen } from "luci
 import { prisma } from "@/lib/prisma";
 import { auth } from "@/lib/auth";
 import { getFixtures } from "@/lib/fixtures";
-import { getSettings, rulesValuesFrom } from "@/lib/scoring";
+import { getSettings, rulesValuesFrom, LEADERBOARD_ORDER } from "@/lib/scoring";
 import { accuracy, cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -25,7 +25,7 @@ export default async function HomePage() {
     prisma.tournament.findFirst({ where: { isActive: true } }),
     getFixtures(userId),
     prisma.leaderboardEntry.findMany({
-      orderBy: { totalPoints: "desc" },
+      orderBy: LEADERBOARD_ORDER,
       take: 5,
       include: { user: true },
     }),

@@ -233,6 +233,11 @@ model LeaderboardEntry {
   wrongPredictions   Int      @default(0)
   currentStreak      Int      @default(0)
   bestStreak         Int      @default(0)
+  // When the user's totalPoints last CHANGED — i.e. when they reached their
+  // current total. Used as a leaderboard tie-break: earliest to reach a score
+  // ranks higher. Only bumped when the total actually changes, so an
+  // idempotent re-score that yields the same total does not reset it.
+  reachedTotalAt     DateTime?
   updatedAt          DateTime @updatedAt
   user               User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
