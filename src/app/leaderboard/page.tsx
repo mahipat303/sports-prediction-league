@@ -8,6 +8,8 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs } from "@/components/tabs";
 import { TournamentStandings } from "@/components/tournament-standings";
 import { computeTeamStandings, computePlayerStandings } from "@/lib/standings";
+import { getTeamPointStandings } from "@/lib/team-points";
+import { SportsDayStandings } from "@/components/sports-day-standings";
 
 export const dynamic = "force-dynamic";
 
@@ -34,6 +36,7 @@ export default async function LeaderboardPage() {
       },
     }),
   ]);
+  const pointStandings = await getTeamPointStandings();
 
   const teamStandings = computeTeamStandings(teams, fixtures);
   const playerStandings = computePlayerStandings(players);
@@ -162,8 +165,13 @@ export default async function LeaderboardPage() {
         items={[
           { key: "prediction", label: "🏆 Prediction Leaderboard", content: predictionPanel },
           {
+            key: "sportsday",
+            label: "🏅 Sports Day Points",
+            content: <SportsDayStandings rows={pointStandings} />,
+          },
+          {
             key: "standings",
-            label: "🎮 Tournament Standings",
+            label: "🎮 Win Records",
             content: <TournamentStandings teams={teamStandings} players={playerStandings} />,
           },
         ]}
