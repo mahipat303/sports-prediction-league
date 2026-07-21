@@ -5,6 +5,28 @@
 > **Last updated:** 21 July 2026, after PR #9 (Sports Day team points) shipped.
 > **Status:** 🟢 LIVE IN PRODUCTION AND ACTIVELY USED (57 users, 1332 predictions).
 
+## Read this first
+1. **§9 Development Guidelines** — the mandatory workflow (analyze → approval →
+   branch → test → PR). Non-negotiable.
+2. **§9.1 Test Environment** — ⚠️ the local `.env` points at the **production
+   database**.
+3. **§13 Current Project Status** — what's done and what's pending right now.
+4. **§14 Code Navigation Map** — where everything lives.
+5. `AGENTS.md` in the repo root — Next.js 16 differs from training data.
+
+### Contents
+| § | Section | § | Section |
+|---|---|---|---|
+| 1 | Project Overview | 10 | Coding Standards |
+| 2 | Application Features | 11 | Future Roadmap |
+| 3 | Database Structure | 12 | Conversation Learnings |
+| 4 | Business Rules | 13 | Current Project Status |
+| 5 | Features Implemented | 14 | **Code Navigation Map** |
+| 6 | Pending Requests | 15 | **Operational Runbooks** |
+| 7 | Excel Integration | 16 | **Troubleshooting** |
+| 8 | Known Issues | 17 | **Glossary & Reference Data** |
+| 9 | Development Guidelines (+ 9.1 Test Environment) | | |
+
 ---
 
 # 1. Project Overview
@@ -467,6 +489,19 @@ The local browser preview reports page-level client components as unhydrated eve
 ### 🟢 Settings table empty
 All scoring runs on code defaults until an admin saves Settings. Intentional.
 
+### 🔴 Local `.env` points at the PRODUCTION database
+`DATABASE_URL` targets the live Neon branch, so `npm run dev` / `npm run build` /
+any `npx tsx` script reads and writes **production data**.
+- **Workaround:** override `DATABASE_URL` with a Neon test-branch URL for
+  anything that writes; never run `npm run seed` or reset commands unguarded.
+- **Planned fix:** add a separate `.env.local` pointing at a dedicated dev Neon
+  branch, keeping production credentials out of day-to-day development.
+
+### 🔴 No automated test suite
+No Jest/Vitest/Playwright, no test directory, no `test` npm script. All
+verification is manual (typecheck + lint + build + scripted DB assertions +
+browser checks). See §9.1 and the roadmap.
+
 ---
 
 # 9. Development Guidelines
@@ -495,6 +530,127 @@ All scoring runs on code defaults until an admin saves Settings. Intentional.
 8. **Protected data** — never change without approval: user accounts, predictions,
    confidence selections, leaderboards, points history, tournament results.
 9. **Report honestly.** If something couldn't be verified, say so explicitly.
+
+---
+
+## 9.1 Test Environment & Verification
+
+### ⚠️ CRITICAL: local `.env` points at PRODUCTION
+`DATABASE_URL` in the local `.env` targets the **live Neon production branch**
+(`ep-autumn-violet-azfehzto…`). Therefore:
+
+- **`npm run dev`, `npm run build` and any `npx tsx` script hit PRODUCTION data.**
+- **Never** run `npm run seed`, `prisma migrate reset`, or destructive scripts
+  without an explicit `DATABASE_URL` override.
+- Always prefix data-touching commands with a test branch URL:
+  ```bash
+  DATABASE_URL=$(cat /tmp/test_branch.txt) npx tsx scripts/whatever.ts
+  ```
+- Read-only queries against production are fine and are how state is verified.
+
+### There is NO automated test suite
+No Jest / Vitest / Playwright / Cypress, no `__tests__` directory, no `test`
+script in `package.json`. **This is a known gap** (see §11 roadmap).
+Verification to date has been: static checks + scripted DB assertions on a
+database branch + real browser checks.
+
+### The real test environment: Neon database branching
+Neon branches are **copy-on-write clones of production** — instant, isolated,
+and free to discard. This is the safety net for every data change.
+
+```bash
+# 1. create an isolated copy of production
+npx --yes neonctl@latest branches create \
+  --project-id calm-band-52307994 --name my-test --output json
+
+# 2. get its connection string
+npx --yes neonctl@latest connection-string my-test \
+  --project-id calm-band-52307994 > /tmp/test_branch.txt
+
+# 3. apply schema changes to the copy (if any)
+DATABASE_URL=$(cat /tmp/test_branch.txt) npx prisma db push --skip-generate
+
+# 4. run migrations / assertions against the copy
+DATABASE_URL=$(cat /tmp/test_branch.txt) npx tsx scripts/<script>.ts
+
+# 5. ALWAYS clean up
+npx --yes neonctl@latest branches delete my-test --project-id calm-band-52307994
+```
+Neon auth: `npx neonctl auth` (browser OAuth, **60-second timeout** — sign in to
+console.neon.tech first, then it's one click).
+
+### Static verification pipeline (run before every PR)
+```bash
+npx tsc --noEmit     # types
+npm run lint         # eslint (Next 16 rules are strict: react-hooks/purity,
+                     # set-state-in-effect, static-components)
+npm run build        # production build — catches RSC/client boundary errors
+```
+
+### Scripted assertion pattern (used throughout this project)
+Ad-hoc verification is written as inline `tsx` against a branch copy, asserting
+invariants before/after. Example shape:
+```bash
+DATABASE_URL=$(cat /tmp/test_branch.txt) npx tsx -e '
+import { prisma } from "./src/lib/prisma";
+async function run(){
+  const before = { p: await prisma.prediction.count(),
+                   h: await prisma.pointsHistory.count() };
+  /* …perform the operation… */
+  const after  = { p: await prisma.prediction.count(),
+                   h: await prisma.pointsHistory.count() };
+  console.log(`predictions ${before.p}->${after.p}`, before.p===after.p?"✓":"✗");
+  await prisma.$disconnect();
+}
+run();'
+```
+
+### Data-safety invariants to assert on ANY data change
+| Invariant | Why |
+|---|---|
+| `prediction.count()` unchanged | user data must never be touched |
+| `pointsHistory.count()` unchanged (unless scoring is the change) | prediction points |
+| `fixture.count({status:"COMPLETED"})` unchanged | historical results |
+| Leaderboard top-3 identical | scoring integrity |
+| Re-running the operation changes nothing | idempotency |
+
+### Dry-run convention for migration scripts
+`scripts/fix-schedule.ts` and `scripts/fix-protected-times.ts` are **dry-run by
+default** and only write with `--apply`. Follow this pattern for any new
+migration script: print every intended change, summarise, then require a flag.
+
+### Browser verification
+- **Local:** start the app via the preview tooling, then drive it (navigate,
+  click, screenshot, `javascript_exec` for DOM assertions).
+- ⚠️ **Known false negative:** the local preview harness reports page-level client
+  components as *unhydrated* (`__reactFiber$` missing) even when they work
+  correctly in production — reproduced on pre-existing components like
+  `AdminNav`. **Do not chase it.** Verify interactivity on the live site instead.
+- **Vercel preview deploys are behind SSO** and cannot be driven programmatically.
+- Take a **screenshot** for any visual change; several real bugs (transparent
+  tooltips, double-toggling checkboxes) were only visible that way.
+
+### Test credentials
+| Account | Purpose |
+|---|---|
+| `admin@opshub.com` | Admin. Password was rotated away from the seed default — **ask the user**. |
+| `priya@ / rahul@ / sneha@opshub.com` | Seeded demo users, password `password123` — **only exist on a freshly seeded DB**; they were deleted from production. |
+
+Registration requires an `@opshub.com` address **and** email verification. On a
+test branch you can bypass by setting `emailVerified` directly:
+```ts
+await prisma.user.update({ where:{ email }, data:{ emailVerified: new Date() } });
+```
+
+### What to verify per change type
+| Change | Verify |
+|---|---|
+| Scoring / points | Neon branch: award → re-run (idempotent) → edit → re-award; predictions & points counts unchanged |
+| Schema | `prisma db push` on a branch first; confirm existing rows survive |
+| Bracket / progression | Full cascade Group → Group Final → Grand Final, plus result-edit re-derivation |
+| Data migration | Dry run → review every line → apply on branch → assert invariants → apply to prod |
+| UI | Build + screenshot in **both dark and light** themes; check mobile width |
+| Admin actions | Confirm `requireAdmin()` present; check unauthenticated access doesn't leak data |
 
 ---
 
@@ -542,6 +698,13 @@ Anything recomputable is **delete-then-recreate**, never append:
 
 # 11. Future Roadmap
 
+- **Automated test suite (recommended first)** — there is currently none. Highest
+  value: unit tests for the pure logic in `lib/scoring.ts` (confidence
+  reward/penalty matrix), `lib/bracket.ts` (`parsePlaceholder`), `lib/standings.ts`,
+  and `lib/team-points.ts` (`matchTeamByLabel`). These are dependency-free
+  functions and would catch the exact class of bug found manually (group matches
+  wrongly awarding final points, edit-time bracket re-derivation).
+  Suggested: **Vitest** — no framework conflict with Next 16.
 - Live score updates during matches (`Fixture.status = LIVE` exists)
 - Multiple tournaments / season history (`Tournament` supports it)
 - Fantasy team building
@@ -639,6 +802,8 @@ Nothing. Working tree clean on `main` at `9cb288c`.
    final awards are complete.
 3. **LOW — Decide** whether to correct times on the 25 completed fixtures
    (affects bonus grouping — needs explicit approval).
+4. **LOW — Technical debt:** add an automated test suite (§11) and point local
+   development at a non-production database (§8).
 
 ## Immediate next steps for a new chat
 1. Read this document + `AGENTS.md` (Next.js version warning).
@@ -662,3 +827,174 @@ npx vercel --prod      # deploy (after merging to main)
 - Repo: https://github.com/mahipat303/sports-prediction-league
 - Neon project: `calm-band-52307994`
 - Admin login: `admin@opshub.com` (password rotated — ask the user)
+
+---
+
+# 14. Code Navigation Map
+
+**Where things live.** Use this instead of grepping blind.
+
+## `src/lib/` — all business logic
+| File | Purpose | Key exports |
+|---|---|---|
+| `prisma.ts` | Prisma singleton | `prisma` |
+| `auth.ts` | NextAuth config + guards. Domain restriction & `emailVerified` check live in `authorize()` / `signIn` callback | `requireUser`, `requireAdmin` |
+| `scoring.ts` | **Prediction points engine.** Confidence multipliers/penalties, fixture evaluation, daily bonuses, leaderboard recompute, champion bonuses, auto-locking | `DEFAULT_SETTINGS`, `getSettings`, `evaluateFixture`, `recomputeLeaderboardEntry`, `evaluateChampionPredictions`, `lockDueFixtures`, `scorePreview`, `rulesValuesFrom` |
+| `team-points.ts` | **Sports Day team points** (real tournament score) | `awardTeamPointsForFixture`, `recomputeAllTeamPoints`, `getTeamPointStandings`, `seedRulesFromFixtures`, `matchTeamByLabel` |
+| `bracket.ts` | **Automatic bracket progression.** Parses placeholder labels, resolves winners recursively | `parsePlaceholder`, `propagateBracket` |
+| `fixture-resolution.ts` | Keeps `side1TeamId`/`side2TeamId` snapshots in sync with player→team assignments; retries name matching | `resolveFixtureSides`, `resolvePlayerFixtures`, `reresolveAllFixtures` |
+| `fixtures.ts` | Serialises fixtures for `MatchCard` (computes `isOpen`, pick counts, confidence preview) | `getFixtures`, `serializeFixture`, `fixtureInclude` |
+| `standings.ts` | Win/loss records (shared by Stats + Leaderboard) | `computeTeamStandings`, `computePlayerStandings` |
+| `excel-import.ts` | Workbook detection, IST-safe date parsing, fuzzy player matching, import | `importWorkbook`, `matchPlayer`, `isPlaceholderLabel`, `IST_OFFSET_MIN` |
+| `email.ts` | SMTP → Resend → console fallback | `sendEmail`, `generateVerificationCode` |
+| `utils.ts` | `cn`, formatting, category/confidence metadata, accuracy | `formatDateTime`, `accuracy`, `CATEGORY_META`, `CONFIDENCE_META` |
+| `welcome.ts` | Once-per-login popup flag | `WELCOME_SEEN_KEY`, `resetWelcome` |
+
+## Server Actions
+| File | Contains |
+|---|---|
+| `src/app/actions.ts` | **User** actions: `submitPrediction`, `submitChampionPrediction`, `registerUser`, `verifyEmail`, `resendVerificationCode` |
+| `src/app/admin/actions.ts` | **All 25 admin actions** (see §2). Every one calls `requireAdmin()` |
+
+## Notable components
+| Component | Notes |
+|---|---|
+| `match-card.tsx` | The prediction card. **Reused** on `/fixtures`, `/`, `/predictions` — change once, applies everywhere |
+| `tabs.tsx` | Shared tab switcher (server-rendered panels passed as props) |
+| `rules-button.tsx` | `floating` \| `card` \| `inline` variants — one rules modal everywhere |
+| `searchable-select.tsx` | Dependency-free combobox (placeholder resolution) |
+| `bulk-fixture-actions.tsx` | Bulk edit; rows use `role="checkbox"` (NOT `<label>` — see §12) |
+| `ui/tooltip.tsx` | `InfoTip` — Radix Popover based |
+| `ui/modal.tsx` | Shared modal (confirmations, rules, welcome) |
+
+## `scripts/` — CLI utilities
+| Script | Purpose |
+|---|---|
+| `import.ts` | `npm run import -- <files>` — same engine as the admin UI |
+| `fix-schedule.ts` | One-off: corrected +5:30 times, created 19 Grand Finals. **Dry-run unless `--apply`** |
+| `fix-protected-times.ts` | One-off: corrected times on prediction-carrying fixtures. **Dry-run unless `--apply`** |
+| `generate-template.ts` | `npm run template` — sample Excel files |
+
+---
+
+# 15. Operational Runbooks
+
+## Deploy to production
+```bash
+git checkout main && git pull --ff-only origin main
+npx vercel --prod                       # schema auto-applies via vercel-build
+sleep 60 && npx vercel ls | head -3     # confirm ● Ready
+curl -s -o /dev/null -w "%{http_code}" https://sports-prediction-league.vercel.app/
+```
+Verify a few routes (`/`, `/fixtures`, `/leaderboard`, `/stats`) return 200.
+If `Error: fetch failed` appears, it's transient — simply retry.
+
+## Rollback
+Vercel keeps every deployment. To revert:
+```bash
+npx vercel ls                                  # find the previous Ready deployment
+npx vercel promote <deployment-url>            # instant rollback
+```
+⚠️ **Schema changes do NOT roll back** — `prisma db push` is forward-only. Since
+all migrations so far have been **additive** (new nullable columns/tables), an
+older build keeps working against the newer schema. Never drop a column that a
+live build still reads.
+
+## Tournament-day admin sequence
+1. **Admin → Fixtures** — confirm today's fixtures have correct times/participants.
+2. As each match finishes: **Admin → Results** → pick winner → optional score →
+   tick *Upset* if the underdog won → **Save & Score**. This single action:
+   scores predictions → awards team points (finals only) → advances the bracket →
+   notifies users.
+3. Mistake? **Edit Result** on the same page (confirmation dialog + audit trail).
+   Everything re-computes idempotently.
+4. Placeholders should resolve automatically. If one doesn't, use the searchable
+   dropdowns, or **⚡ Run bracket progression**.
+5. After the last final: **Admin → Dashboard → Declare champion** to award the
+   +50 champion-prediction bonuses.
+
+## Common data fixes
+| Situation | Fix |
+|---|---|
+| A player shows the wrong team | Admin → Players → change team (historical fixtures re-resolve automatically) |
+| A side isn't linked to any team | Admin → Players → **🔄 Re-resolve all fixtures** |
+| Schedule changed | Admin → Fixtures → edit date/time inline, or select several → **Bulk edit** |
+| New Excel received | Diff first (§7), then `npm run import -- <file>`; never clobbers results/predictions |
+| Team points look wrong | Admin → Team Points → adjust the rule, or **🔄 Recompute from results** |
+
+## Adding a new sport / category (future events)
+1. Import a schedule workbook containing it — the sport is created automatically.
+2. **Admin → Team Points** — set winner/runner-up points for each new
+   sport+category (rules are auto-seeded from the sheet where present).
+3. Placeholders/brackets need no configuration — `bracket.ts` is generic.
+
+---
+
+# 16. Troubleshooting — errors actually hit in this project
+
+| Symptom | Cause | Fix |
+|---|---|---|
+| `Error: fetch failed` from `vercel --prod` | Transient network | Retry |
+| Neon `P1010: User was denied access` | Serverless endpoint waking up | Retry after a few seconds |
+| `neonctl` hangs asking for organization | Multiple orgs | Pass `--org-id org-orange-wind-93187218` |
+| `neonctl auth` times out (60s) | Browser OAuth window | Sign in to console.neon.tech **first**, then retry — it's one click |
+| `cp: ~/Downloads/…: Operation not permitted` | macOS privacy protection; attachment grants expire | Ask the user to copy the file into the project directory |
+| `gh repo create` → "Resource not accessible" | Token lacks `repo` scope | `gh auth refresh -h github.com -s repo` |
+| Type error: action "not assignable to `void \| Promise<void>`" | Next 16 requires `<form action>` handlers to return `void` | Return nothing; use `console.warn` for validation failures |
+| Lint: `react-hooks/purity` / `set-state-in-effect` | Next 16 strict rules — e.g. `Date.now()` during render | Move into `useEffect` + `requestAnimationFrame` |
+| Tooltip/popover renders transparent | `--popover` CSS var is **not defined** in `globals.css` | Use `bg-card` / `text-card-foreground` |
+| Checkbox click does nothing | `<label>` wrapper double-toggles | Use a `div` with `role="checkbox"` + `onClick` |
+| Client component appears "unhydrated" locally | Preview-harness false negative | Verify on production instead (§9.1) |
+| Times off by 5h30m | Server-local date parsing on a UTC host | Build instants from explicit IST offset (already fixed in `excel-import.ts`) |
+
+---
+
+# 17. Glossary & Reference Data
+
+## Domain terms
+| Term | Meaning |
+|---|---|
+| **Side** | One competitor in a fixture — a player, a doubles pair, an office team, or a placeholder. Fixtures have `side1`/`side2`, never "home/away" |
+| **Placeholder** | A side not yet decided, e.g. `"Winner Group A Match 1"`. `isPlaceholder = true` blocks predictions |
+| **Stage** | Round within a bracket: `Group A Initial`, `Group B Initial`, `Group Final`, `Semi Final`, `Initial Match 1/2`, `Grand Final` |
+| **Match Category** | Division within a sport, e.g. `Male Singles`, `Mix Double`, `Gold - Female Single` |
+| **Upset** | Admin flag meaning the underdog won → correct predictions score off the higher `POINTS_UPSET` base |
+| **Champion prediction** | A user's pick of the overall winning office team (+50, separate from match predictions) |
+| **Sports Day points** | The **real** tournament score awarded to office teams for winning finals — not prediction points |
+| **Purse** | Auction budget (₹60 Cr per team) |
+| **Owner pair** | Each office team is named after its two owners, e.g. *Aakash & Bhoomi* |
+
+## Office teams (4)
+| Team | Short | Colour | Players |
+|---|---|---|---|
+| Aakash & Bhoomi | A&B | `#ef4444` red | 15 |
+| Abhi & Jayswee | A&J | `#f59e0b` amber | 14 |
+| Aniket & Jahnavi | AN&JA | `#3b82f6` blue | 15 |
+| Kabir & Rushina | K&R | `#8b5cf6` violet | 15 |
+
+## Sports (7)
+♟️ Chess · 🎯 Carrom · 🏅 TT · 🏸 Badminton · 🏏 Cricket · 🏐 Vollyball · 🎾 Pickleball
+
+> Note: **"Vollyball"** and **"TT"** are spelled as in the source Excel. Do **not**
+> "correct" them — names are the join key between the workbook and the DB.
+
+## Match categories (15)
+`Male Singles`, `Female Singles`, `Male Doubles`, `Male Double`, `Female Double`,
+`Mix Double`, `Platinum - Male Singles`, `Platinum - Male Double`,
+`Platinum - Mix Double`, `Gold - Male Singles`, `Gold - Male Double`,
+`Gold - Female Single`, `Gold - Female Double`, `Semi final`, `Final`
+
+> Both `Male Doubles` **and** `Male Double` exist (Carrom vs Pickleball). This
+> inconsistency comes from the Excel; treat category strings as opaque keys.
+
+## Player categories
+💎 `PLATINUM` · 🥇 `GOLD` · 🥈 `SILVER` · 🥉 `BRONZE` (unused)
+
+## Key file paths
+```
+Live URL     https://sports-prediction-league.vercel.app
+Repo         github.com/mahipat303/sports-prediction-league
+Neon project calm-band-52307994  (org-orange-wind-93187218)
+Prod branch  ep-autumn-violet-azfehzto…ap-southeast-1
+Excel files  user's ~/Downloads (copy into repo before reading — macOS blocks access)
+```
