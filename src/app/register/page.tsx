@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { registerUser, verifyEmail, resendVerificationCode } from "@/app/actions";
 import { resetWelcome } from "@/lib/welcome";
+import { OpsHubLogo } from "@/components/opshub-logo";
 
 export default function RegisterPage() {
   const router = useRouter();
@@ -68,6 +69,9 @@ export default function RegisterPage() {
 
   return (
     <div className="mx-auto mt-10 w-full max-w-sm">
+      <div className="mb-5 flex justify-center">
+        <OpsHubLogo width={160} />
+      </div>
       <Card>
         <CardHeader className="items-center text-center">
           <span className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-2xl bg-gradient-to-br from-indigo-500 to-pink-500 text-white shadow-lg">
