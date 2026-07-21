@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { Confidence, NotificationType } from "@prisma/client";
+import { Confidence, NotificationType, type Prisma } from "@prisma/client";
 
 // Admin-configurable scoring values with sensible defaults.
 export const DEFAULT_SETTINGS = {
@@ -219,25 +219,54 @@ export async function recomputeLeaderboardEntry(userId: string) {
     bestStreak = Math.max(bestStreak, run);
   }
 
+  const totalPoints = agg._sum.points ?? 0;
+
+  // "Earliest to reach the total" tie-break: stamp the moment the total
+  // CHANGES, not on every recompute — so re-scoring a fixture that yields the
+  // same total keeps the original timestamp and doesn't cost the user rank.
+  const existing = await prisma.leaderboardEntry.findUnique({ where: { userId } });
+  const reachedTotalAt =
+    existing && existing.totalPoints === totalPoints && existing.reachedTotalAt
+      ? existing.reachedTotalAt
+      : new Date();
+
   await prisma.leaderboardEntry.upsert({
     where: { userId },
     create: {
       userId,
-      totalPoints: agg._sum.points ?? 0,
+      totalPoints,
       correctPredictions: correct,
       wrongPredictions: wrong,
       currentStreak,
       bestStreak,
+      reachedTotalAt,
     },
     update: {
-      totalPoints: agg._sum.points ?? 0,
+      totalPoints,
       correctPredictions: correct,
       wrongPredictions: wrong,
       currentStreak,
       bestStreak,
+      reachedTotalAt,
     },
   });
 }
+
+/**
+ * Canonical leaderboard ordering, used everywhere so every surface agrees:
+ *   1. Highest total points
+ *   2. More correct predictions
+ *   3. Fewer wrong predictions
+ *   4. Earliest to reach that total
+ *   5. Name (stable fallback so a true dead heat never reshuffles)
+ */
+export const LEADERBOARD_ORDER: Prisma.LeaderboardEntryOrderByWithRelationInput[] = [
+  { totalPoints: "desc" },
+  { correctPredictions: "desc" },
+  { wrongPredictions: "asc" },
+  { reachedTotalAt: { sort: "asc", nulls: "last" } },
+  { user: { name: "asc" } },
+];
 
 /**
  * When every fixture on a given day is completed, award streak and

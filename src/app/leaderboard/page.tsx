@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs } from "@/components/tabs";
 import { TournamentStandings } from "@/components/tournament-standings";
 import { computeTeamStandings, computePlayerStandings } from "@/lib/standings";
+import { LEADERBOARD_ORDER } from "@/lib/scoring";
 import { getTeamPointStandings } from "@/lib/team-points";
 import { SportsDayStandings } from "@/components/sports-day-standings";
 
@@ -19,7 +20,7 @@ export default async function LeaderboardPage() {
   const session = await auth();
   const [entries, teams, fixtures, players] = await Promise.all([
     prisma.leaderboardEntry.findMany({
-      orderBy: [{ totalPoints: "desc" }, { correctPredictions: "desc" }],
+      orderBy: LEADERBOARD_ORDER,
       include: { user: true },
     }),
     prisma.team.findMany(),
