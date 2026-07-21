@@ -7,14 +7,10 @@ import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { ChampionAdmin } from "@/components/champion-admin";
 import { getSettings } from "@/lib/scoring";
+import { formatDateTime, istInputValue } from "@/lib/utils";
 
 export const dynamic = "force-dynamic";
 
-function toLocalInput(date?: Date | null) {
-  if (!date) return "";
-  const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return d.toISOString().slice(0, 16);
-}
 
 export default async function AdminDashboard() {
   const [teams, players, sports, fixtures, users, predictions, pending, tournament, teamList] =
@@ -69,7 +65,7 @@ export default async function AdminDashboard() {
         <CardContent>
           <p className="mb-3 text-sm text-muted-foreground">
             {tournament
-              ? `Current: ${tournament.name} on ${tournament.eventDate.toLocaleString("en-IN")}`
+              ? `Current: ${tournament.name} on ${formatDateTime(tournament.eventDate)}`
               : "No event date set — the home page countdown needs this."}
           </p>
           <form action={setTournament} className="flex flex-wrap items-end gap-2">
@@ -88,7 +84,7 @@ export default async function AdminDashboard() {
                 name="eventDate"
                 type="datetime-local"
                 required
-                defaultValue={toLocalInput(tournament?.eventDate)}
+                defaultValue={istInputValue(tournament?.eventDate)}
                 className="w-56"
               />
             </div>
@@ -97,7 +93,7 @@ export default async function AdminDashboard() {
               <Input
                 name="championLockTime"
                 type="datetime-local"
-                defaultValue={toLocalInput(tournament?.championLockTime)}
+                defaultValue={istInputValue(tournament?.championLockTime)}
                 className="w-56"
               />
             </div>

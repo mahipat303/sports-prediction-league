@@ -1,6 +1,6 @@
 import { CalendarDays, CheckCircle2, Clock, Radio, Trophy } from "lucide-react";
 import { prisma } from "@/lib/prisma";
-import { cn } from "@/lib/utils";
+import { cn, formatTime, istDayKey, IST_TZ } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -8,27 +8,13 @@ import { ScheduleFilters } from "@/components/schedule-filters";
 
 export const dynamic = "force-dynamic";
 
-// The office runs on IST; the server may run in UTC (Vercel), so all
-// date/time rendering and grouping on this page pins the timezone.
-const TZ = "Asia/Kolkata";
-
-function dayKey(d: Date) {
-  return new Intl.DateTimeFormat("en-CA", { timeZone: TZ }).format(d); // yyyy-mm-dd
-}
+/** Long day heading, e.g. "Wednesday, 22 July" — specific to this page. */
 function dayLabel(d: Date) {
   return new Intl.DateTimeFormat("en-IN", {
-    timeZone: TZ,
+    timeZone: IST_TZ,
     weekday: "long",
     day: "numeric",
     month: "long",
-  }).format(d);
-}
-function timeLabel(d: Date) {
-  return new Intl.DateTimeFormat("en-IN", {
-    timeZone: TZ,
-    hour: "numeric",
-    minute: "2-digit",
-    hour12: true,
   }).format(d);
 }
 
@@ -71,12 +57,12 @@ export default async function SchedulePage(props: { searchParams: Promise<Search
 
   const sports = [...new Set(fixtures.map((f) => f.sport.name))].sort();
   const categories = [...new Set(fixtures.map((f) => f.matchCategory))].sort();
-  const dates = [...new Map(fixtures.map((f) => [dayKey(f.startTime), dayLabel(f.startTime)])).entries()]
+  const dates = [...new Map(fixtures.map((f) => [istDayKey(f.startTime), dayLabel(f.startTime)])).entries()]
     .sort(([a], [b]) => a.localeCompare(b))
     .map(([value, label]) => ({ value, label }));
 
   const filtered = fixtures.filter((f) => {
-    if (sp.date && dayKey(f.startTime) !== sp.date) return false;
+    if (sp.date && istDayKey(f.startTime) !== sp.date) return false;
     if (sp.sport && f.sport.name !== sp.sport) return false;
     if (sp.category && f.matchCategory !== sp.category) return false;
     if (sp.team && f.side1TeamId !== sp.team && f.side2TeamId !== sp.team) return false;
@@ -95,7 +81,7 @@ export default async function SchedulePage(props: { searchParams: Promise<Search
   // Group by IST day, preserving chronological order
   const days: { key: string; label: string; matches: typeof filtered }[] = [];
   for (const f of filtered) {
-    const key = dayKey(f.startTime);
+    const key = istDayKey(f.startTime);
     let day = days.find((d) => d.key === key);
     if (!day) {
       day = { key, label: dayLabel(f.startTime), matches: [] };
@@ -226,7 +212,7 @@ export default async function SchedulePage(props: { searchParams: Promise<Search
                       const st = STATUS_META[displayStatus(f.status)];
                       return (
                         <tr key={f.id} className="border-b border-border/30 transition-colors last:border-0 hover:bg-accent/40">
-                          <td className="whitespace-nowrap p-3 pl-5 font-mono text-xs">{timeLabel(f.startTime)}</td>
+                          <td className="whitespace-nowrap p-3 pl-5 font-mono text-xs">{formatTime(f.startTime)}</td>
                           <td className="whitespace-nowrap p-3">{f.sport.icon} {f.sport.name}</td>
                           <td className="whitespace-nowrap p-3 text-xs text-muted-foreground">
                             {f.matchCategory}
@@ -263,7 +249,7 @@ export default async function SchedulePage(props: { searchParams: Promise<Search
                 <Card key={f.id}>
                   <CardContent className="space-y-2 p-4">
                     <div className="flex flex-wrap items-center gap-2 text-xs">
-                      <span className="font-mono font-semibold">{timeLabel(f.startTime)}</span>
+                      <span className="font-mono font-semibold">{formatTime(f.startTime)}</span>
                       <Badge variant="secondary">{f.sport.icon} {f.sport.name}</Badge>
                       <Badge variant="outline">{f.matchCategory}</Badge>
                       <Badge variant={st.variant} className="ml-auto">{st.label}</Badge>

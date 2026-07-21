@@ -2,7 +2,7 @@
 
 > **Purpose of this document:** complete technical + functional handoff so a new
 > chat can continue development without the prior conversation history.
-> **Last updated:** 21 July 2026, after PR #9 (Sports Day team points) shipped.
+> **Last updated:** 21 July 2026, after PR #16 (app-wide IST timezone fix) shipped.
 > **Status:** 🟢 LIVE IN PRODUCTION AND ACTIVELY USED (57 users, 1332 predictions).
 
 ## Read this first
@@ -309,7 +309,19 @@ All values admin-configurable.
 ## Leaderboard calculation
 `totalPoints` = SUM of **all** `PointsHistory` (match points + penalties + bonuses).
 `currentStreak` = consecutive correct counting back from the most recent evaluated
-prediction. Ties break by `correctPredictions`. Fully recomputed (idempotent).
+prediction. Fully recomputed (idempotent).
+
+**Tie-breaks (PR #13)** — exported as `LEADERBOARD_ORDER` from `lib/scoring.ts`
+and used by the leaderboard, home page and stats page so all three agree:
+1. `totalPoints` ↓
+2. `correctPredictions` ↓
+3. `wrongPredictions` ↑ (fewer wrong wins)
+4. `reachedTotalAt` ↑ (whoever reached the total first)
+5. `user.name` ↑ (final deterministic fallback)
+
+`LeaderboardEntry.reachedTotalAt` (nullable) is stamped **only when
+`totalPoints` actually changes**, so an idempotent re-score doesn't reset it.
+Backfilled for all 44 entries when the column was added.
 
 ## Result publishing (idempotency is critical)
 `evaluateFixture()` **deletes that fixture's PointsHistory rows before recreating
@@ -374,6 +386,10 @@ Chronological, with rationale.
 | PR#7 | **My Predictions tabs, champion admin controls, fixture date editing, bulk editing** | Also fixed `setTournament` orphaning champion picks |
 | PR#8 | **OpsHub branding** | Footer, auth pages, hero badge; white chip because logo is dark navy on transparency |
 | PR#9 | **Sports Day team points** | `TeamPointRule` + `TeamPointsAward`, admin screen, standings tab, manual adjustments |
+| PR#12 | **Rebrand to "OpsHub Sports Day League"** | OpsHub icon replaces the generic trophy in the navbar; name responsive (full at `xl`, shortened `sm`–`xl`, icon-only on mobile) so the `h-14` bar can't grow. Renamed in metadata title, footer, hero badge, welcome popup, verification emails |
+| PR#13 | **Leaderboard tie-breaks** | `LEADERBOARD_ORDER` + `LeaderboardEntry.reachedTotalAt` (see §4) |
+| PR#14 | **Expanded rules copy** | Full bonus + tie-break transparency in the rules modal |
+| PR#16 | **App-wide IST timezone fix** | All display and `datetime-local` input/parsing pinned to IST; 3 duplicated `toLocalInput` helpers removed; `bulkUpdateFixtures` date/time branches unified (see §8) |
 
 ### Data migrations already applied to production
 - **39 match times corrected** (+5:30 offset) + **19 Grand Finals created** (PR#4)
@@ -463,6 +479,20 @@ Points appear **only on `Grand Final` rows**. Max 305 points. Note 7.5 → Float
 
 # 8. Current Known Issues
 
+### ✅ RESOLVED (PR #16) — inconsistent times across pages
+- **Was:** `formatDateTime` called `toLocaleString` with **no `timeZone`**, so the
+  same instant rendered as UTC in server components (Vercel runs UTC) and in the
+  *viewer's* zone in client components. `/fixtures` (client `MatchCard`) and
+  Admin → Fixtures (server) disagreed by 5h30m. Only `/schedule` pinned IST.
+- **Also:** three duplicated `toLocalInput` helpers used `getTimezoneOffset()`, so
+  admin `datetime-local` inputs showed UTC wall-clock; and within the *same* bulk
+  edit form the `time` branch read input as IST while `datetime` read it as UTC.
+- **Fixed:** one set of IST helpers in `src/lib/utils.ts` (§10), used by every
+  display and every write path (`updateFixtureSchedule`, `bulkUpdateFixtures`,
+  `setTournament`, `setChampionWindow`).
+- **No stored values changed** — verified byte-identical round-trip over all 114
+  fixtures × 2 fields under three different runtime timezones.
+
 ### 🟡 Completed fixtures display pre-fix times
 - **Cause:** the original importer used `setHours()` (server-local). On Vercel (UTC) "10:00 am" became 10:00 UTC = 15:30 IST.
 - **Fixed** for all non-completed fixtures (PR#4 + PR#6) and in the importer itself (now builds instants from an explicit IST offset).
@@ -479,6 +509,25 @@ Points appear **only on `Grand Final` rows**. Max 305 points. Note 7.5 → Float
 - **Verified:** `/admin/users` returns emails to an unauthenticated `curl`.
 - **Fixed:** `/admin/insights` has an in-page guard; every action calls `requireAdmin()`.
 - **Technical debt:** other admin pages still rely on the layout guard. Recommend adding the same one-line in-page guard to each (proposed previously, not yet approved).
+
+### 🔴 Daily-bonus day grouping is UTC, not IST
+- `lib/scoring.ts` (~line 282) builds the day window with `setHours(0,0,0,0)`,
+  i.e. **runtime-local = UTC on Vercel**, so "a day" for streak / perfect-day
+  bonuses is a **UTC day, not an IST day**.
+- Deliberately **left alone in PR #16** — it changes *awarded bonuses*
+  (protected data) and could retroactively alter points already given.
+- Currently harmless: **0 of 114 fixtures** cross the UTC/IST date boundary.
+  It would start biting the moment a match is scheduled before 05:30 IST.
+- **Needs an explicit decision before changing.**
+
+### 🟡 `championLockTime` was saved through the old buggy input path
+- Stored value is `2026-07-21T20:30Z`, i.e. **22 Jul 02:00 IST** — not
+  "21 Jul 20:30 IST" as this doc previously claimed. An admin typed 20:30
+  meaning IST and the old write path stored it as 20:30 **UTC**.
+- After PR #16 the admin field correctly *displays* `2026-07-22T02:00`, which
+  surfaces the discrepancy.
+- **Not corrected** — it's tournament config affecting 6 champion predictions.
+  Ask the user whether the intended lock was 20:30 IST.
 
 ### 🟡 Excel per-sport sheets are stale
 `Chess`/`Carrom` sheets disagree with `All` on winners. Importer reads only `All` — harmless, but don't treat them as source of truth.
@@ -682,7 +731,16 @@ Tailwind v4 with CSS variables (`--card`, `--border`, `--primary`…).
 ⚠️ **`--popover` is NOT defined** — use `bg-card`.
 Dark mode via `.dark` class + localStorage. Glassmorphism, Framer Motion,
 `animate-in-up` for staggered lists, skeletons in `loading.tsx`, emoji-rich copy.
-**Times are always rendered in IST** (`timeZone: "Asia/Kolkata"`).
+**Times are always rendered in IST.** Never call `toLocaleString`/`new Date(str)`
+on a date directly — always go through the `src/lib/utils.ts` helpers, which pin
+`Asia/Kolkata`. The server runs UTC on Vercel and client components run in the
+*viewer's* zone, so an unpinned format renders differently depending on where it
+executes (this was the PR #16 bug).
+
+⚠️ **`istInputValue` and `parseIstInput` are inverses and must always be changed
+together.** `istInputValue` renders an instant as IST wall-clock for a
+`datetime-local` input; `parseIstInput` reads that value back as IST. Fixing one
+without the other silently shifts every admin-saved time by 5h30m.
 
 ## Error handling & validation
 Actions return `{ error }` or `console.warn` + early return. Import errors
@@ -785,14 +843,19 @@ Match dates (IST): 17, 20, 21, 22, 23, 25 July 2026
 ```
 
 ## ✅ Complete
-All 9 PRs merged and deployed. Every feature explicitly requested is live:
+All PRs through #16 merged and deployed. Every feature explicitly requested is live:
 predictions with confidence risk/reward, tournament winner prediction + admin
 controls, schedule, three-tab leaderboard, statistics with tooltips, admin panel
 (10 tabs), result editing with audit, automatic bracket progression, bulk fixture
 editing, admin prediction insights, Sports Day team points, OpsHub branding.
 
 ## 🔄 In progress
-Nothing. Working tree clean on `main` at `9cb288c`.
+Nothing.
+
+**Since this snapshot was taken:** PR #12 (OpsHub rebrand), #13 (leaderboard
+tie-breaks), #14 (expanded rules), #16 (app-wide IST fix). Counts below are from
+the PR #9 era and drift as the app is used — **always re-query before acting**
+(predictions had already grown 1332 → 1391 by PR #16).
 
 ## ⏳ Pending (admin actions, not code)
 1. **HIGH — Run bracket progression once** (Admin → Fixtures → ⚡). 25 results are
@@ -847,7 +910,7 @@ npx vercel --prod      # deploy (after merging to main)
 | `standings.ts` | Win/loss records (shared by Stats + Leaderboard) | `computeTeamStandings`, `computePlayerStandings` |
 | `excel-import.ts` | Workbook detection, IST-safe date parsing, fuzzy player matching, import | `importWorkbook`, `matchPlayer`, `isPlaceholderLabel`, `IST_OFFSET_MIN` |
 | `email.ts` | SMTP → Resend → console fallback | `sendEmail`, `generateVerificationCode` |
-| `utils.ts` | `cn`, formatting, category/confidence metadata, accuracy | `formatDateTime`, `accuracy`, `CATEGORY_META`, `CONFIDENCE_META` |
+| `utils.ts` | `cn`, **all IST date/time formatting + `datetime-local` parsing**, category/confidence metadata, accuracy | `IST_TZ`, `IST_OFFSET_MS`, `formatDateTime`, `formatDate`, `formatTime`, `istDayKey`, `istInputValue`, `parseIstInput`, `withIstDate`, `withIstTime`, `accuracy`, `CATEGORY_META`, `CONFIDENCE_META` |
 | `welcome.ts` | Once-per-login popup flag | `WELCOME_SEEN_KEY`, `resetWelcome` |
 
 ## Server Actions
