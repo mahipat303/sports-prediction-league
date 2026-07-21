@@ -3,7 +3,7 @@ import {
   createFixture, setFixtureStatus, deleteFixture, updateFixtureSides, setFixtureLiveUrl,
   runBracketProgression, updateFixtureSchedule,
 } from "@/app/admin/actions";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, istInputValue } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -14,10 +14,6 @@ import { BulkFixtureActions } from "@/components/bulk-fixture-actions";
 
 export const dynamic = "force-dynamic";
 
-function toLocalInput(date: Date) {
-  const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return d.toISOString().slice(0, 16);
-}
 
 const statusVariant: Record<string, "secondary" | "warning" | "live" | "success" | "destructive"> = {
   SCHEDULED: "secondary",
@@ -242,7 +238,7 @@ export default async function AdminFixturesPage() {
                 <Input
                   name="startTime"
                   type="datetime-local"
-                  defaultValue={toLocalInput(fixture.startTime)}
+                  defaultValue={istInputValue(fixture.startTime)}
                   className="h-8 w-56"
                 />
                 <input type="hidden" name="fixtureId" value={fixture.id} />

@@ -3,14 +3,9 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Badge } from "@/components/ui/badge";
-import { formatDateTime } from "@/lib/utils";
+import { formatDateTime, istInputValue } from "@/lib/utils";
 import { setChampionWindow, setChampionVisibility } from "@/app/admin/actions";
 
-function toLocalInput(date?: Date | null) {
-  if (!date) return "";
-  const d = new Date(date.getTime() - date.getTimezoneOffset() * 60000);
-  return d.toISOString().slice(0, 16);
-}
 
 /**
  * Admin controls for the Tournament Winner prediction — lock / unlock /
@@ -73,7 +68,7 @@ export function ChampionAdmin({
               <Input
                 name="championLockTime"
                 type="datetime-local"
-                defaultValue={toLocalInput(effective)}
+                defaultValue={istInputValue(effective)}
                 className="w-56"
               />
             </div>

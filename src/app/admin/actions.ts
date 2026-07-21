@@ -9,6 +9,7 @@ import { importWorkbook, type ImportResult } from "@/lib/excel-import";
 import { resolvePlayerFixtures, reresolveAllFixtures } from "@/lib/fixture-resolution";
 import { propagateBracket } from "@/lib/bracket";
 import { awardTeamPointsForFixture, recomputeAllTeamPoints, seedRulesFromFixtures } from "@/lib/team-points";
+import { parseIstInput, withIstDate, withIstTime } from "@/lib/utils";
 import { NotificationType, PlayerCategory } from "@prisma/client";
 
 function revalidateAll() {
@@ -374,15 +375,16 @@ export async function updateSettings(formData: FormData) {
 export async function setTournament(formData: FormData) {
   await requireAdmin();
   const name = String(formData.get("name") ?? "Sports Day").trim();
-  const eventDate = new Date(String(formData.get("eventDate") ?? ""));
-  if (isNaN(eventDate.getTime())) { console.warn("Invalid date"); return; }
+  // datetime-local carries no offset — read it as IST wall-clock, not runtime-local.
+  const eventDate = parseIstInput(String(formData.get("eventDate") ?? ""));
+  if (!eventDate) { console.warn("Invalid date"); return; }
   const rawLock = String(formData.get("championLockTime") ?? "");
-  const championLockTime = rawLock ? new Date(rawLock) : eventDate;
+  const championLockTime = rawLock ? parseIstInput(rawLock) : eventDate;
 
   // Update the active tournament in place. Creating a new row each save would
   // orphan every ChampionPrediction (they're tied to tournamentId).
   const existing = await prisma.tournament.findFirst({ where: { isActive: true } });
-  const lock = isNaN(championLockTime.getTime()) ? eventDate : championLockTime;
+  const lock = championLockTime ?? eventDate;
 
   if (existing) {
     await prisma.tournament.update({
@@ -411,8 +413,8 @@ export async function updateFixtureSchedule(formData: FormData) {
   const fixtureId = String(formData.get("fixtureId") ?? "");
   const raw = String(formData.get("startTime") ?? "");
   if (!fixtureId || !raw) { console.warn("Missing fixture or time"); return; }
-  const startTime = new Date(raw);
-  if (isNaN(startTime.getTime())) { console.warn("Invalid start time"); return; }
+  const startTime = parseIstInput(raw);
+  if (!startTime) { console.warn("Invalid start time"); return; }
 
   await prisma.fixture.update({
     where: { id: fixtureId },
@@ -461,22 +463,15 @@ async function bulkApply(
 
     if (action === "date" || action === "time" || action === "datetime") {
       // Merge the new date and/or time onto the fixture's existing start.
+      // Every branch reads the admin's input as IST wall-clock.
       const current = f.startTime;
-      let next: Date;
-      if (action === "datetime") {
-        next = new Date(value);
-      } else if (action === "date") {
-        const [y, m, d] = value.split("-").map(Number);
-        next = new Date(current);
-        next.setUTCFullYear(y, m - 1, d);
-      } else {
-        const [h, mi] = value.split(":").map(Number);
-        // Times are entered as IST wall-clock.
-        const ist = new Date(current.getTime() + 330 * 60_000);
-        ist.setUTCHours(h, mi, 0, 0);
-        next = new Date(ist.getTime() - 330 * 60_000);
-      }
-      if (isNaN(next.getTime())) continue;
+      const next =
+        action === "datetime"
+          ? parseIstInput(value)
+          : action === "date"
+            ? withIstDate(current, value)
+            : withIstTime(current, value);
+      if (!next) continue;
       data = { startTime: next, lockTime: await lockFor(next) };
     } else if (action === "status") {
       if (!["SCHEDULED", "LOCKED", "LIVE", "CANCELLED"].includes(value)) continue;
@@ -512,8 +507,8 @@ export async function setChampionWindow(formData: FormData) {
     championLockTime = new Date();
   } else {
     const raw = String(formData.get("championLockTime") ?? "");
-    const parsed = raw ? new Date(raw) : null;
-    if (parsed && !isNaN(parsed.getTime())) {
+    const parsed = raw ? parseIstInput(raw) : null;
+    if (parsed) {
       championLockTime = parsed;
     } else if (mode === "unlock") {
       // Default: open until the last scheduled match starts.
