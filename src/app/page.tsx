@@ -13,6 +13,7 @@ import { Countdown } from "@/components/countdown";
 import { MatchCard } from "@/components/match-card";
 import { ChampionPrediction } from "@/components/champion-prediction";
 import { RulesContent } from "@/components/rules";
+import { OpsHubIcon } from "@/components/opshub-logo";
 
 export const dynamic = "force-dynamic";
 
@@ -72,8 +73,9 @@ export default async function HomePage() {
       <section className="relative overflow-hidden rounded-3xl border border-border/60 bg-gradient-to-br from-indigo-600 via-violet-600 to-pink-600 p-6 text-white shadow-xl sm:p-10">
         <div className="relative z-10 flex flex-col gap-6 md:flex-row md:items-center md:justify-between">
           <div>
-            <Badge className="mb-3 bg-white/20 text-white backdrop-blur">
-              <Sparkles className="h-3 w-3" /> Office Sports Day {tournament ? new Date(tournament.eventDate).getFullYear() : ""}
+            <Badge className="mb-3 gap-1.5 bg-white/20 text-white backdrop-blur">
+              <OpsHubIcon size={14} />
+              Office Sports Day {tournament ? new Date(tournament.eventDate).getFullYear() : ""}
             </Badge>
             <h1 className="text-3xl font-extrabold tracking-tight sm:text-5xl">
               Prediction League

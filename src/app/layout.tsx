@@ -6,6 +6,7 @@ import { getSettings, rulesValuesFrom } from "@/lib/scoring";
 import { Navbar } from "@/components/navbar";
 import { WelcomePopup } from "@/components/welcome-popup";
 import { RulesButton } from "@/components/rules-button";
+import { OpsHubLogo } from "@/components/opshub-logo";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -50,9 +51,19 @@ export default async function RootLayout({
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
             {children}
           </main>
-          <footer className="border-t border-border/50 py-4 text-center text-xs text-muted-foreground">
-            Office Sports Day Prediction League · Virtual points only · Not a
-            gambling app 🏆
+          <footer className="border-t border-border/50 py-6">
+            <div className="mx-auto flex max-w-6xl flex-col items-center gap-3 px-4">
+              <div className="flex flex-col items-center gap-2">
+                <span className="text-[11px] uppercase tracking-wider text-muted-foreground">
+                  An initiative by
+                </span>
+                <OpsHubLogo width={150} />
+              </div>
+              <p className="text-center text-xs text-muted-foreground">
+                Office Sports Day Prediction League · Virtual points only · Not a
+                gambling app 🏆
+              </p>
+            </div>
           </footer>
           <RulesButton values={rulesValues} variant="floating" />
         </SessionProvider>
