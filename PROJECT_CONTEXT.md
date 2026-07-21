@@ -467,6 +467,19 @@ The local browser preview reports page-level client components as unhydrated eve
 ### 🟢 Settings table empty
 All scoring runs on code defaults until an admin saves Settings. Intentional.
 
+### 🔴 Local `.env` points at the PRODUCTION database
+`DATABASE_URL` targets the live Neon branch, so `npm run dev` / `npm run build` /
+any `npx tsx` script reads and writes **production data**.
+- **Workaround:** override `DATABASE_URL` with a Neon test-branch URL for
+  anything that writes; never run `npm run seed` or reset commands unguarded.
+- **Planned fix:** add a separate `.env.local` pointing at a dedicated dev Neon
+  branch, keeping production credentials out of day-to-day development.
+
+### 🔴 No automated test suite
+No Jest/Vitest/Playwright, no test directory, no `test` npm script. All
+verification is manual (typecheck + lint + build + scripted DB assertions +
+browser checks). See §9.1 and the roadmap.
+
 ---
 
 # 9. Development Guidelines
@@ -495,6 +508,127 @@ All scoring runs on code defaults until an admin saves Settings. Intentional.
 8. **Protected data** — never change without approval: user accounts, predictions,
    confidence selections, leaderboards, points history, tournament results.
 9. **Report honestly.** If something couldn't be verified, say so explicitly.
+
+---
+
+## 9.1 Test Environment & Verification
+
+### ⚠️ CRITICAL: local `.env` points at PRODUCTION
+`DATABASE_URL` in the local `.env` targets the **live Neon production branch**
+(`ep-autumn-violet-azfehzto…`). Therefore:
+
+- **`npm run dev`, `npm run build` and any `npx tsx` script hit PRODUCTION data.**
+- **Never** run `npm run seed`, `prisma migrate reset`, or destructive scripts
+  without an explicit `DATABASE_URL` override.
+- Always prefix data-touching commands with a test branch URL:
+  ```bash
+  DATABASE_URL=$(cat /tmp/test_branch.txt) npx tsx scripts/whatever.ts
+  ```
+- Read-only queries against production are fine and are how state is verified.
+
+### There is NO automated test suite
+No Jest / Vitest / Playwright / Cypress, no `__tests__` directory, no `test`
+script in `package.json`. **This is a known gap** (see §11 roadmap).
+Verification to date has been: static checks + scripted DB assertions on a
+database branch + real browser checks.
+
+### The real test environment: Neon database branching
+Neon branches are **copy-on-write clones of production** — instant, isolated,
+and free to discard. This is the safety net for every data change.
+
+```bash
+# 1. create an isolated copy of production
+npx --yes neonctl@latest branches create \
+  --project-id calm-band-52307994 --name my-test --output json
+
+# 2. get its connection string
+npx --yes neonctl@latest connection-string my-test \
+  --project-id calm-band-52307994 > /tmp/test_branch.txt
+
+# 3. apply schema changes to the copy (if any)
+DATABASE_URL=$(cat /tmp/test_branch.txt) npx prisma db push --skip-generate
+
+# 4. run migrations / assertions against the copy
+DATABASE_URL=$(cat /tmp/test_branch.txt) npx tsx scripts/<script>.ts
+
+# 5. ALWAYS clean up
+npx --yes neonctl@latest branches delete my-test --project-id calm-band-52307994
+```
+Neon auth: `npx neonctl auth` (browser OAuth, **60-second timeout** — sign in to
+console.neon.tech first, then it's one click).
+
+### Static verification pipeline (run before every PR)
+```bash
+npx tsc --noEmit     # types
+npm run lint         # eslint (Next 16 rules are strict: react-hooks/purity,
+                     # set-state-in-effect, static-components)
+npm run build        # production build — catches RSC/client boundary errors
+```
+
+### Scripted assertion pattern (used throughout this project)
+Ad-hoc verification is written as inline `tsx` against a branch copy, asserting
+invariants before/after. Example shape:
+```bash
+DATABASE_URL=$(cat /tmp/test_branch.txt) npx tsx -e '
+import { prisma } from "./src/lib/prisma";
+async function run(){
+  const before = { p: await prisma.prediction.count(),
+                   h: await prisma.pointsHistory.count() };
+  /* …perform the operation… */
+  const after  = { p: await prisma.prediction.count(),
+                   h: await prisma.pointsHistory.count() };
+  console.log(`predictions ${before.p}->${after.p}`, before.p===after.p?"✓":"✗");
+  await prisma.$disconnect();
+}
+run();'
+```
+
+### Data-safety invariants to assert on ANY data change
+| Invariant | Why |
+|---|---|
+| `prediction.count()` unchanged | user data must never be touched |
+| `pointsHistory.count()` unchanged (unless scoring is the change) | prediction points |
+| `fixture.count({status:"COMPLETED"})` unchanged | historical results |
+| Leaderboard top-3 identical | scoring integrity |
+| Re-running the operation changes nothing | idempotency |
+
+### Dry-run convention for migration scripts
+`scripts/fix-schedule.ts` and `scripts/fix-protected-times.ts` are **dry-run by
+default** and only write with `--apply`. Follow this pattern for any new
+migration script: print every intended change, summarise, then require a flag.
+
+### Browser verification
+- **Local:** start the app via the preview tooling, then drive it (navigate,
+  click, screenshot, `javascript_exec` for DOM assertions).
+- ⚠️ **Known false negative:** the local preview harness reports page-level client
+  components as *unhydrated* (`__reactFiber$` missing) even when they work
+  correctly in production — reproduced on pre-existing components like
+  `AdminNav`. **Do not chase it.** Verify interactivity on the live site instead.
+- **Vercel preview deploys are behind SSO** and cannot be driven programmatically.
+- Take a **screenshot** for any visual change; several real bugs (transparent
+  tooltips, double-toggling checkboxes) were only visible that way.
+
+### Test credentials
+| Account | Purpose |
+|---|---|
+| `admin@opshub.com` | Admin. Password was rotated away from the seed default — **ask the user**. |
+| `priya@ / rahul@ / sneha@opshub.com` | Seeded demo users, password `password123` — **only exist on a freshly seeded DB**; they were deleted from production. |
+
+Registration requires an `@opshub.com` address **and** email verification. On a
+test branch you can bypass by setting `emailVerified` directly:
+```ts
+await prisma.user.update({ where:{ email }, data:{ emailVerified: new Date() } });
+```
+
+### What to verify per change type
+| Change | Verify |
+|---|---|
+| Scoring / points | Neon branch: award → re-run (idempotent) → edit → re-award; predictions & points counts unchanged |
+| Schema | `prisma db push` on a branch first; confirm existing rows survive |
+| Bracket / progression | Full cascade Group → Group Final → Grand Final, plus result-edit re-derivation |
+| Data migration | Dry run → review every line → apply on branch → assert invariants → apply to prod |
+| UI | Build + screenshot in **both dark and light** themes; check mobile width |
+| Admin actions | Confirm `requireAdmin()` present; check unauthenticated access doesn't leak data |
 
 ---
 
@@ -542,6 +676,13 @@ Anything recomputable is **delete-then-recreate**, never append:
 
 # 11. Future Roadmap
 
+- **Automated test suite (recommended first)** — there is currently none. Highest
+  value: unit tests for the pure logic in `lib/scoring.ts` (confidence
+  reward/penalty matrix), `lib/bracket.ts` (`parsePlaceholder`), `lib/standings.ts`,
+  and `lib/team-points.ts` (`matchTeamByLabel`). These are dependency-free
+  functions and would catch the exact class of bug found manually (group matches
+  wrongly awarding final points, edit-time bracket re-derivation).
+  Suggested: **Vitest** — no framework conflict with Next 16.
 - Live score updates during matches (`Fixture.status = LIVE` exists)
 - Multiple tournaments / season history (`Tournament` supports it)
 - Fantasy team building
@@ -639,6 +780,8 @@ Nothing. Working tree clean on `main` at `9cb288c`.
    final awards are complete.
 3. **LOW — Decide** whether to correct times on the 25 completed fixtures
    (affects bonus grouping — needs explicit approval).
+4. **LOW — Technical debt:** add an automated test suite (§11) and point local
+   development at a non-production database (§8).
 
 ## Immediate next steps for a new chat
 1. Read this document + `AGENTS.md` (Next.js version warning).
