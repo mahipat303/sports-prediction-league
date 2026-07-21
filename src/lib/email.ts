@@ -11,7 +11,7 @@ import nodemailer from "nodemailer";
  */
 export async function sendEmail(to: string, subject: string, text: string) {
   const from =
-    process.env.EMAIL_FROM ?? "Sports Day League <no-reply@opshub.com>";
+    process.env.EMAIL_FROM ?? "OpsHub Sports Day League <no-reply@opshub.com>";
 
   if (process.env.SMTP_HOST && process.env.SMTP_USER && process.env.SMTP_PASS) {
     const transport = nodemailer.createTransport({

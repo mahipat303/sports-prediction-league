@@ -44,7 +44,7 @@ export function WelcomePopup({ name }: { name: string }) {
             Welcome{firstName ? `, ${firstName}` : ""}! 🎉
           </h2>
           <p className="mt-1 text-sm text-muted-foreground">
-            You&apos;re in the <strong>Office Sports Prediction League</strong>.
+            You&apos;re in the <strong>OpsHub Sports Day League</strong>.
           </p>
         </div>
 

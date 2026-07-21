@@ -149,8 +149,8 @@ export async function registerUser(formData: FormData) {
   try {
     await sendEmail(
       normalizedEmail,
-      "Your Sports Day League verification code",
-      `Hi ${name},\n\nYour verification code is: ${code}\n\nIt expires in 15 minutes.\n\n— Sports Day Prediction League`
+      "Your OpsHub Sports Day League verification code",
+      `Hi ${name},\n\nYour verification code is: ${code}\n\nIt expires in 15 minutes.\n\n— OpsHub Sports Day League`
     );
   } catch (error) {
     console.error("Verification email failed:", error);
@@ -207,7 +207,7 @@ export async function resendVerificationCode(formData: FormData) {
   try {
     await sendEmail(
       email,
-      "Your Sports Day League verification code",
+      "Your OpsHub Sports Day League verification code",
       `Your new verification code is: ${code}\n\nIt expires in 15 minutes.`
     );
   } catch (error) {
