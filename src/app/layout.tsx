@@ -20,7 +20,7 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Sports Day Prediction League",
+  title: "OpsHub Sports Day League",
   description:
     "Predict match winners in the office Sports Day and climb the leaderboard. Virtual points only — no real money.",
 };
@@ -60,7 +60,7 @@ export default async function RootLayout({
                 <OpsHubLogo width={150} />
               </div>
               <p className="text-center text-xs text-muted-foreground">
-                Office Sports Day Prediction League · Virtual points only · Not a
+                OpsHub Sports Day League · Virtual points only · Not a
                 gambling app 🏆
               </p>
             </div>

@@ -10,6 +10,7 @@ import {
   UserRound, BarChart3, ListChecks, Home,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { OpsHubIcon } from "@/components/opshub-logo";
 import { resetWelcome } from "@/lib/welcome";
 import { Button } from "@/components/ui/button";
 import { ThemeToggle } from "@/components/theme-toggle";
@@ -35,10 +36,16 @@ export function Navbar({ session }: { session: Session | null }) {
     <header className="sticky top-0 z-40 border-b border-border/50 bg-background/70 backdrop-blur-xl">
       <div className="mx-auto flex h-14 max-w-6xl items-center gap-3 px-4 sm:px-6">
         <Link href="/" className="flex items-center gap-2 font-bold">
-          <span className="flex h-8 w-8 items-center justify-center rounded-xl bg-gradient-to-br from-indigo-500 to-pink-500 text-white shadow-lg">
-            <Trophy className="h-4 w-4" />
+          <OpsHubIcon size={20} className="h-8 w-8 rounded-xl shadow-lg" />
+          {/* Full name from xl up; shortened where the 8-link nav competes for
+              space. nowrap keeps the brand on one line so the h-14 bar can
+              never grow. */}
+          <span className="hidden whitespace-nowrap leading-tight sm:inline xl:hidden">
+            OpsHub Sports Day
           </span>
-          <span className="hidden sm:inline">Sports Day League</span>
+          <span className="hidden whitespace-nowrap leading-tight xl:inline">
+            OpsHub Sports Day League
+          </span>
         </Link>
 
         <nav className="ml-4 hidden items-center gap-1 lg:flex">

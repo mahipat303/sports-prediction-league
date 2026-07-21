@@ -75,7 +75,7 @@ export default async function HomePage() {
           <div>
             <Badge className="mb-3 gap-1.5 bg-white/20 text-white backdrop-blur">
               <OpsHubIcon size={14} />
-              Office Sports Day {tournament ? new Date(tournament.eventDate).getFullYear() : ""}
+              OpsHub Sports Day {tournament ? new Date(tournament.eventDate).getFullYear() : ""}
             </Badge>
             <h1 className="text-3xl font-extrabold tracking-tight sm:text-5xl">
               Prediction League
