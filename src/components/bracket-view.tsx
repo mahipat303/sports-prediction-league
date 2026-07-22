@@ -142,20 +142,36 @@ function DetailModal({ node, onClose }: { node: BracketNode | null; onClose: () 
   );
 }
 
-/** One sport+category bracket: rounds as columns (stacked rows on mobile). */
+/**
+ * One bracket: every round is a column, derived from the dependency graph.
+ *
+ * Columns distribute their nodes evenly over the same height (`justify-around`)
+ * rather than clumping in the middle, so each node lands on the vertical
+ * centroid of the matches feeding it — a 4 → 2 → 1 bracket lines its group
+ * finals up against their own pairs, and a 4 → 1 fan-in centres the final on
+ * the whole column. That removes the dead space a fixed centre alignment left
+ * behind, at any number of rounds.
+ */
 function BracketGrid({ bracket, onOpen }: { bracket: Bracket; onOpen: (n: BracketNode) => void }) {
   const roundLabel = (i: number) => {
+    // A column can mix stages (Group A and Group B matches share round 1).
+    // Each card already shows its own stage, so the header stays generic.
     const stages = [...new Set(bracket.rounds[i].map((n) => n.stage).filter(Boolean))];
     return stages.length === 1 ? stages[0]! : `Round ${i + 1}`;
   };
+  // Nodes that feed a later match get a rail out of their right edge, so a
+  // connection is never a dangling stub on one side of the gap.
+  const feedsForward = new Set(bracket.edges.map((e) => e.from));
+  const lastRound = bracket.rounds.length - 1;
+
   return (
     <div className="overflow-x-auto pb-1">
       <div
-        className="grid min-w-max gap-x-6 gap-y-3"
+        className="grid min-w-max gap-x-8 gap-y-3"
         style={{ gridTemplateColumns: `repeat(${bracket.rounds.length}, minmax(9.5rem, 13rem))` }}
       >
         {bracket.rounds.map((_, i) => (
-          <div key={`h${i}`} className="text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+          <div key={`h${i}`} className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
             {roundLabel(i)}
           </div>
         ))}
@@ -164,17 +180,21 @@ function BracketGrid({ bracket, onOpen }: { bracket: Bracket; onOpen: (n: Bracke
             key={`c${i}`}
             className={cn(
               "flex flex-col gap-2",
-              // Later rounds centre against the taller column feeding them.
-              i > 0 && "justify-center"
+              round.length > 1 ? "justify-around" : "justify-center"
             )}
           >
             {round.map((n) => (
               <div key={n.id} className="relative">
                 {i > 0 && (
-                  // Connector rail into this node from the previous column.
                   <span
                     aria-hidden
-                    className="pointer-events-none absolute right-full top-1/2 h-px w-6 bg-border"
+                    className="pointer-events-none absolute right-full top-1/2 h-px w-4 bg-border"
+                  />
+                )}
+                {i < lastRound && feedsForward.has(n.id) && (
+                  <span
+                    aria-hidden
+                    className="pointer-events-none absolute left-full top-1/2 h-px w-4 bg-border"
                   />
                 )}
                 <NodeCard node={n} onOpen={() => onOpen(n)} />

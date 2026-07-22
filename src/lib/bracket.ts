@@ -141,6 +141,38 @@ function findTarget(ref: Ref, pool: FixtureLite[]): FixtureLite | null {
   }
 }
 
+/**
+ * Locate a reference in a *different* match category of the same sport.
+ *
+ * Some formats split one bracket across two categories: Cricket and Volleyball
+ * store their semi-finals under `matchCategory = "Semi final"` and the decider
+ * under `"Final"`, so `"Winner Semi Final 1"` can never be found in its own
+ * category and the final stays unresolved forever.
+ *
+ * Guard: the reference is only accepted when exactly **one** other category
+ * yields a match. If several do, the reference is genuinely ambiguous (e.g.
+ * "Winner Group A" exists in seven Badminton categories) and we return null
+ * rather than link the wrong fixture.
+ */
+function findTargetInSport(
+  ref: Ref,
+  sportPool: FixtureLite[],
+  ownCategory: string
+): FixtureLite | null {
+  const byCategory = new Map<string, FixtureLite[]>();
+  for (const f of sportPool) {
+    if (f.matchCategory === ownCategory) continue;
+    (byCategory.get(f.matchCategory) ?? byCategory.set(f.matchCategory, []).get(f.matchCategory)!).push(f);
+  }
+  const hits: FixtureLite[] = [];
+  for (const [, pool] of byCategory) {
+    const hit = findTarget(ref, pool);
+    if (hit) hits.push(hit);
+    if (hits.length > 1) return null; // ambiguous across categories
+  }
+  return hits[0] ?? null;
+}
+
 // ---------------------------------------------------------------------------
 // Read-only bracket graph (Tournament Flow page)
 // ---------------------------------------------------------------------------
@@ -220,13 +252,23 @@ const MAX_DEPTH = 20; // guard against a malformed reference cycling forever
  * writes anything, so the bracket page can show the real shape of those 14
  * sport/category brackets while progression behaviour is left untouched.
  */
-function findDisplayTargets(ref: Ref, pool: FixtureLite[]): FixtureLite[] {
-  const direct = findTarget(ref, pool);
+function findDisplayTargets(
+  ref: Ref,
+  categoryPool: FixtureLite[],
+  sportPool: FixtureLite[],
+  ownCategory: string
+): FixtureLite[] {
+  // 1. Same category — identical to what progression does.
+  const direct = findTarget(ref, categoryPool);
   if (direct) return [direct];
+  // 2. A group with no group-final match: link to that group's own matches.
   if (ref.kind === "group") {
-    return pool.filter((f) => stageIs(f, `Group ${ref.group} Initial`));
+    const inGroup = categoryPool.filter((f) => stageIs(f, `Group ${ref.group} Initial`));
+    if (inGroup.length) return inGroup;
   }
-  return [];
+  // 3. Another category of the same sport (Cricket / Volleyball split brackets).
+  const cross = findTargetInSport(ref, sportPool, ownCategory);
+  return cross ? [cross] : [];
 }
 
 /**
@@ -243,18 +285,21 @@ function findDisplayTargets(ref: Ref, pool: FixtureLite[]): FixtureLite[] {
  * with no group phase simply starts at its own entry round.
  */
 export function buildBrackets(fixtures: BracketInput[]): Bracket[] {
-  const groups = new Map<string, BracketInput[]>();
+  const bySport = new Map<string, BracketInput[]>();
   for (const f of fixtures) {
-    const key = `${f.sport.name}|${f.matchCategory}`;
-    (groups.get(key) ?? groups.set(key, []).get(key)!).push(f);
+    const k = f.sport.name;
+    (bySport.get(k) ?? bySport.set(k, []).get(k)!).push(f);
   }
 
   const out: Bracket[] = [];
-  for (const [key, pool] of groups) {
-    const edges: BracketEdge[] = [];
-    const incoming = new Map<string, BracketEdge[]>();
 
-    for (const f of pool) {
+  for (const [, sportPool] of bySport) {
+    // --- edges, resolved across the whole sport ---------------------------
+    const edges: BracketEdge[] = [];
+    for (const f of sportPool) {
+      const categoryPool = sportPool.filter(
+        (o) => o.matchCategory === f.matchCategory && o.id !== f.id
+      );
       for (const side of [1, 2] as const) {
         const label = side === 1 ? f.side1Label : f.side2Label;
         const stored = side === 1 ? f.side1Source : f.side2Source;
@@ -262,97 +307,131 @@ export function buildBrackets(fixtures: BracketInput[]): Bracket[] {
         if (!source) continue;
         const parsed = parsePlaceholder(source);
         if (!parsed) continue;
-        const targets = findDisplayTargets(
+        for (const target of findDisplayTargets(
           parsed.ref,
-          pool.filter((o) => o.id !== f.id)
-        );
-        for (const target of targets) {
-          const edge: BracketEdge = {
-            from: target.id,
-            to: f.id,
-            toSide: side,
-            want: parsed.want,
-          };
-          edges.push(edge);
-          (incoming.get(f.id) ?? incoming.set(f.id, []).get(f.id)!).push(edge);
+          categoryPool,
+          sportPool.filter((o) => o.id !== f.id),
+          f.matchCategory
+        )) {
+          edges.push({ from: target.id, to: f.id, toSide: side, want: parsed.want });
         }
       }
     }
 
-    // Longest path from a root. Memoised, with a visited set so a malformed
-    // reference that forms a cycle cannot hang the page.
-    const depthCache = new Map<string, number>();
-    const depthOf = (id: string, seen: Set<string>): number => {
-      const cached = depthCache.get(id);
-      if (cached !== undefined) return cached;
-      if (seen.has(id) || seen.size > MAX_DEPTH) return 0;
-      seen.add(id);
-      const parents = incoming.get(id) ?? [];
-      const d = parents.length
-        ? Math.min(
-            MAX_DEPTH,
-            Math.max(...parents.map((e) => depthOf(e.from, new Set(seen)) + 1))
-          )
-        : 0;
-      depthCache.set(id, d);
-      return d;
+    // --- split into connected components ---------------------------------
+    // One component = one bracket. This is what lets a format that spans two
+    // match categories (Cricket / Volleyball put their semi-finals and final
+    // under different categories) render as a single connected bracket, while
+    // unrelated categories stay separate — without hardcoding either shape.
+    const parent = new Map<string, string>();
+    const find = (a: string): string => {
+      let r = a;
+      while (parent.get(r) !== r) r = parent.get(r)!;
+      while (parent.get(a) !== r) {
+        const next = parent.get(a)!;
+        parent.set(a, r);
+        a = next;
+      }
+      return r;
     };
-
-    const sideOf = (f: BracketInput, n: 1 | 2): BracketSide => {
-      const label = n === 1 ? f.side1Label : f.side2Label;
-      const team = n === 1 ? f.side1Team : f.side2Team;
-      return {
-        label,
-        teamName: team?.name ?? null,
-        teamColor: team?.color ?? null,
-        players: f.players.filter((p) => p.side === n).map((p) => p.player.name),
-        pending: isPlaceholderLabel(label),
-      };
-    };
-
-    const nodes: BracketNode[] = pool.map((f) => ({
-      id: f.id,
-      stage: f.stage,
-      matchCategory: f.matchCategory,
-      status: f.status,
-      startTime: f.startTime.toISOString(),
-      venue: f.venue,
-      liveUrl: f.liveUrl,
-      scoreSummary: f.scoreSummary,
-      isUpset: f.isUpset,
-      isPlaceholder: f.isPlaceholder,
-      winnerSide: f.winnerSide,
-      predictionCount: f._count.predictions,
-      side1: sideOf(f, 1),
-      side2: sideOf(f, 2),
-      round: depthOf(f.id, new Set()),
-    }));
-
-    const maxRound = nodes.reduce((m, n) => Math.max(m, n.round), 0);
-    const rounds: BracketNode[][] = Array.from({ length: maxRound + 1 }, () => []);
-    for (const n of nodes) rounds[n.round].push(n);
-    for (const r of rounds) {
-      r.sort(
-        (a, b) =>
-          new Date(a.startTime).getTime() - new Date(b.startTime).getTime() ||
-          a.id.localeCompare(b.id)
-      );
+    for (const f of sportPool) parent.set(f.id, f.id);
+    for (const e of edges) {
+      const [ra, rb] = [find(e.from), find(e.to)];
+      if (ra !== rb) parent.set(ra, rb);
+    }
+    const components = new Map<string, BracketInput[]>();
+    for (const f of sportPool) {
+      const r = find(f.id);
+      (components.get(r) ?? components.set(r, []).get(r)!).push(f);
     }
 
-    const first = pool[0];
-    out.push({
-      key,
-      sportName: first.sport.name,
-      sportIcon: first.sport.icon,
-      matchCategory: first.matchCategory,
-      rounds,
-      edges,
-    });
+    for (const [, pool] of components) {
+      const ids = new Set(pool.map((f) => f.id));
+      const compEdges = edges.filter((e) => ids.has(e.from) && ids.has(e.to));
+      const incoming = new Map<string, BracketEdge[]>();
+      for (const e of compEdges) {
+        (incoming.get(e.to) ?? incoming.set(e.to, []).get(e.to)!).push(e);
+      }
+
+      // Longest path from a root. Memoised, with a visited set so a malformed
+      // reference that forms a cycle cannot hang the page.
+      const depthCache = new Map<string, number>();
+      const depthOf = (id: string, seen: Set<string>): number => {
+        const cached = depthCache.get(id);
+        if (cached !== undefined) return cached;
+        if (seen.has(id) || seen.size > MAX_DEPTH) return 0;
+        seen.add(id);
+        const parents = incoming.get(id) ?? [];
+        const d = parents.length
+          ? Math.min(
+              MAX_DEPTH,
+              Math.max(...parents.map((e) => depthOf(e.from, new Set(seen)) + 1))
+            )
+          : 0;
+        depthCache.set(id, d);
+        return d;
+      };
+
+      const sideOf = (f: BracketInput, n: 1 | 2): BracketSide => {
+        const label = n === 1 ? f.side1Label : f.side2Label;
+        const team = n === 1 ? f.side1Team : f.side2Team;
+        return {
+          label,
+          teamName: team?.name ?? null,
+          teamColor: team?.color ?? null,
+          players: f.players.filter((p) => p.side === n).map((p) => p.player.name),
+          pending: isPlaceholderLabel(label),
+        };
+      };
+
+      const nodes: BracketNode[] = pool.map((f) => ({
+        id: f.id,
+        stage: f.stage,
+        matchCategory: f.matchCategory,
+        status: f.status,
+        startTime: f.startTime.toISOString(),
+        venue: f.venue,
+        liveUrl: f.liveUrl,
+        scoreSummary: f.scoreSummary,
+        isUpset: f.isUpset,
+        isPlaceholder: f.isPlaceholder,
+        winnerSide: f.winnerSide,
+        predictionCount: f._count.predictions,
+        side1: sideOf(f, 1),
+        side2: sideOf(f, 2),
+        round: depthOf(f.id, new Set()),
+      }));
+
+      const maxRound = nodes.reduce((m, n) => Math.max(m, n.round), 0);
+      const rounds: BracketNode[][] = Array.from({ length: maxRound + 1 }, () => []);
+      for (const n of nodes) rounds[n.round].push(n);
+      for (const r of rounds) {
+        r.sort(
+          (a, b) =>
+            new Date(a.startTime).getTime() - new Date(b.startTime).getTime() ||
+            a.id.localeCompare(b.id)
+        );
+      }
+
+      // A component can span categories; name it after all of them.
+      const cats = [...new Set(pool.map((f) => f.matchCategory))].sort();
+      const first = pool[0];
+      out.push({
+        key: `${first.sport.name}|${cats.join(" + ")}|${nodes[0]?.id ?? ""}`,
+        sportName: first.sport.name,
+        sportIcon: first.sport.icon,
+        matchCategory: cats.join(" + "),
+        rounds,
+        edges: compEdges,
+      });
+    }
   }
 
   return out.sort(
     (a, b) =>
       a.sportName.localeCompare(b.sportName) ||
+      // Deeper brackets (the real progression) first within a sport.
+      b.rounds.length - a.rounds.length ||
       a.matchCategory.localeCompare(b.matchCategory)
   );
 }
@@ -394,9 +473,8 @@ export async function propagateBracket(): Promise<PropagationChange[]> {
 
     let changedThisPass = 0;
     for (const f of pending) {
-      const pool = fixtures.filter(
-        (o) => o.sportId === f.sportId && o.matchCategory === f.matchCategory && o.id !== f.id
-      );
+      const sportPool = fixtures.filter((o) => o.sportId === f.sportId && o.id !== f.id);
+      const pool = sportPool.filter((o) => o.matchCategory === f.matchCategory);
       const next: {
         side1Label?: string; side2Label?: string;
         side1Source?: string; side2Source?: string;
@@ -411,7 +489,13 @@ export async function propagateBracket(): Promise<PropagationChange[]> {
 
         const parsed = parsePlaceholder(source);
         if (!parsed) continue;
-        const target = findTarget(parsed.ref, pool);
+        // Same category first; then, only if the reference cannot be found
+        // there at all, one unambiguous other category of the same sport —
+        // Cricket and Volleyball split their semi-finals and final across two
+        // categories, so their finals could never resolve otherwise.
+        const target =
+          findTarget(parsed.ref, pool) ??
+          findTargetInSport(parsed.ref, sportPool, f.matchCategory);
         if (!target) continue;
         const resolved = outcome(target, parsed.want);
         if (!resolved) continue;
