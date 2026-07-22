@@ -61,7 +61,11 @@ export default async function BracketPage(props: { searchParams: Promise<Search>
   };
 
   const filterBracket = (b: (typeof all)[number]) => {
-    const rounds = b.rounds.map((r) => r.filter(matches));
+    // Drop rounds the filter emptied, otherwise they render as a titled column
+    // of blank space next to the matches that survived.
+    const rounds = b.rounds
+      .map((r) => r.filter(matches))
+      .filter((r) => r.length > 0);
     return { ...b, rounds };
   };
   const hasAny = (b: (typeof all)[number]) => b.rounds.some((r) => r.length > 0);

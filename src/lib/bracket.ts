@@ -115,6 +115,19 @@ function findTarget(ref: Ref, pool: FixtureLite[]): FixtureLite | null {
       // placeholder we can read its own labels; once resolved we identify it
       // by its participants being winners of that group's initial matches.
       const finals = pool.filter((f) => stageIs(f, "Group Final"));
+
+      // A group played as a single match has no decider to look for: its one
+      // match *is* the group, so "Winner Group A" means that match's winner.
+      // Guarded to exactly one match, so this can never pick between rival
+      // winners — where a group has several matches we still require a real
+      // Group Final fixture rather than guessing.
+      if (finals.length === 0) {
+        const groupMatches = pool.filter((f) =>
+          stageIs(f, `Group ${ref.group} Initial`)
+        );
+        if (groupMatches.length === 1) return groupMatches[0];
+      }
+
       const byLabel = finals.find((f) =>
         [f.side1Label, f.side2Label].some((l) =>
           new RegExp(`group\\s+${ref.group}\\b`, "i").test(l)
@@ -405,12 +418,42 @@ export function buildBrackets(fixtures: BracketInput[]): Bracket[] {
       const maxRound = nodes.reduce((m, n) => Math.max(m, n.round), 0);
       const rounds: BracketNode[][] = Array.from({ length: maxRound + 1 }, () => []);
       for (const n of nodes) rounds[n.round].push(n);
-      for (const r of rounds) {
-        r.sort(
-          (a, b) =>
-            new Date(a.startTime).getTime() - new Date(b.startTime).getTime() ||
-            a.id.localeCompare(b.id)
-        );
+
+      const byStart = (a: BracketNode, b: BracketNode) =>
+        new Date(a.startTime).getTime() - new Date(b.startTime).getTime() ||
+        a.id.localeCompare(b.id);
+
+      /**
+       * Order each column by the graph rather than by kick-off time, so the
+       * matches feeding a given node sit directly beside each other and
+       * connectors never have to cross.
+       *
+       * Sorting by time alone interleaves the groups — Group A's two matches
+       * end up split by Group B's, and the group finals appear in the opposite
+       * order to their feeders.
+       *
+       * Columns are therefore resolved right-to-left: the final round keeps
+       * chronological order, and every earlier round is sorted by where its
+       * match leads (target's position, then which side it fills). Nodes that
+       * feed nothing keep time order and settle at the end.
+       */
+      const outgoing = new Map<string, BracketEdge>();
+      for (const e of compEdges) if (!outgoing.has(e.from)) outgoing.set(e.from, e);
+
+      rounds[maxRound]?.sort(byStart);
+      for (let i = maxRound - 1; i >= 0; i--) {
+        const nextIndex = new Map(rounds[i + 1].map((n, idx) => [n.id, idx]));
+        rounds[i].sort((a, b) => {
+          const ea = outgoing.get(a.id);
+          const eb = outgoing.get(b.id);
+          const ia = ea ? nextIndex.get(ea.to) ?? Infinity : Infinity;
+          const ib = eb ? nextIndex.get(eb.to) ?? Infinity : Infinity;
+          if (ia !== ib) return ia - ib;
+          const sa = ea?.toSide ?? 0;
+          const sb = eb?.toSide ?? 0;
+          if (sa !== sb) return sa - sb;
+          return byStart(a, b);
+        });
       }
 
       // A component can span categories; name it after all of them.
