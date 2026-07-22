@@ -1,77 +1,52 @@
 "use client";
 
 import { useState } from "react";
-import { Trophy, Radio, Users, Lock } from "lucide-react";
+import { Trophy, Radio, Users, Lock, ChevronDown } from "lucide-react";
 import type { Bracket, BracketNode, BracketSide } from "@/lib/bracket";
 import { Modal } from "@/components/ui/modal";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { cn, formatDateTime } from "@/lib/utils";
+import {
+  BracketNodeCard,
+  STATE_META,
+  nodeState,
+} from "@/components/bracket/bracket-node";
+import { BracketConnectors } from "@/components/bracket/bracket-connectors";
+import {
+  useBracketLayout,
+  CARD_H,
+  COL_W,
+  GUTTER,
+  ROW_H,
+} from "@/components/bracket/use-bracket-layout";
 
-type NodeState = "completed" | "live" | "waiting" | "upcoming";
-
-function nodeState(n: BracketNode): NodeState {
-  if (n.status === "COMPLETED") return "completed";
-  if (n.status === "LIVE") return "live";
-  if (n.isPlaceholder) return "waiting";
-  return "upcoming";
-}
-
-const STATE_META: Record<NodeState, { label: string; dot: string; ring: string }> = {
-  completed: { label: "🟢 Completed", dot: "bg-emerald-500", ring: "border-emerald-500/40" },
-  live: { label: "🟡 Live", dot: "bg-amber-500 animate-pulse", ring: "border-amber-500/60" },
-  waiting: { label: "🔒 Waiting for previous match", dot: "bg-muted-foreground/40", ring: "border-dashed border-border" },
-  upcoming: { label: "⚪ Upcoming", dot: "bg-slate-400", ring: "border-border/60" },
-};
-
-function SideRow({ side, isWinner, isLoser }: { side: BracketSide; isWinner: boolean; isLoser: boolean }) {
+/** One competitor block in the details modal. */
+function DetailSide({ s, won }: { s: BracketSide; won: boolean }) {
   return (
     <div
       className={cn(
-        "flex items-center gap-1.5 rounded-md px-1.5 py-1 text-xs",
-        isWinner && "bg-emerald-500/10 font-semibold",
-        isLoser && "opacity-55",
-        side.pending && "italic text-muted-foreground"
+        "rounded-xl border p-2.5",
+        won ? "border-emerald-500/40 bg-emerald-500/10" : "border-border/60 bg-background/40"
       )}
     >
-      {side.teamColor && (
-        <span
-          className="h-2 w-2 flex-shrink-0 rounded-full"
-          style={{ backgroundColor: side.teamColor }}
-        />
-      )}
-      <span className="min-w-0 flex-1 truncate">{side.label}</span>
-      {isWinner && <Trophy className="h-3 w-3 flex-shrink-0 text-amber-500" />}
-    </div>
-  );
-}
-
-function NodeCard({ node, onOpen }: { node: BracketNode; onOpen: () => void }) {
-  const state = nodeState(node);
-  const meta = STATE_META[state];
-  const w = node.winnerSide;
-  return (
-    <button
-      onClick={onOpen}
-      className={cn(
-        "w-full rounded-xl border bg-card/70 p-2 text-left shadow-sm backdrop-blur transition-colors hover:border-primary/60 hover:bg-accent/60",
-        meta.ring
-      )}
-    >
-      <div className="mb-1 flex items-center gap-1.5">
-        <span className={cn("h-1.5 w-1.5 flex-shrink-0 rounded-full", meta.dot)} />
-        <span className="truncate text-[10px] uppercase tracking-wide text-muted-foreground">
-          {node.stage ?? "Match"}
-        </span>
-        {node.scoreSummary && (
-          <span className="ml-auto font-mono text-[10px] text-muted-foreground">
-            {node.scoreSummary}
-          </span>
+      <p className="flex items-center gap-2 text-sm font-semibold">
+        {s.teamColor && (
+          <span
+            className="h-2.5 w-2.5 flex-shrink-0 rounded-full"
+            style={{ backgroundColor: s.teamColor }}
+          />
         )}
-      </div>
-      <SideRow side={node.side1} isWinner={w === 1} isLoser={w === 2} />
-      <SideRow side={node.side2} isWinner={w === 2} isLoser={w === 1} />
-    </button>
+        <span className="min-w-0 flex-1 break-words">{s.label}</span>
+        {won && <Trophy className="h-4 w-4 flex-shrink-0 text-amber-500" />}
+      </p>
+      {s.teamName && <p className="mt-0.5 text-[11px] text-muted-foreground">{s.teamName}</p>}
+      {s.players.length > 0 && (
+        <p className="mt-0.5 flex items-center gap-1 text-[11px] text-muted-foreground">
+          <Users className="h-3 w-3 flex-shrink-0" /> {s.players.join(", ")}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -83,7 +58,7 @@ function DetailModal({ node, onClose }: { node: BracketNode | null; onClose: () 
     ["Stage", node.stage ?? "—"],
     ["Category", node.matchCategory],
     ["Status", STATE_META[state].label],
-    ["Date & time", formatDateTime(node.startTime) + " IST"],
+    ["Date & time", `${formatDateTime(node.startTime)} IST`],
   ];
   if (node.venue) rows.push(["Venue", node.venue]);
   if (node.status === "COMPLETED") {
@@ -105,23 +80,12 @@ function DetailModal({ node, onClose }: { node: BracketNode | null; onClose: () 
   return (
     <Modal open onClose={onClose} title="Match details" className="max-w-md">
       <div className="space-y-3 text-sm">
-        <div className="space-y-1.5 rounded-xl border border-border/60 p-3">
-          {([node.side1, node.side2] as const).map((s, i) => (
-            <div key={i}>
-              <SideRow side={s} isWinner={w === i + 1} isLoser={Boolean(w) && w !== i + 1} />
-              {s.teamName && (
-                <p className="pl-3 text-[11px] text-muted-foreground">{s.teamName}</p>
-              )}
-              {s.players.length > 0 && (
-                <p className="flex items-center gap-1 pl-3 text-[11px] text-muted-foreground">
-                  <Users className="h-3 w-3" /> {s.players.join(", ")}
-                </p>
-              )}
-              {i === 0 && <p className="py-0.5 text-center text-[10px] font-bold text-muted-foreground">vs</p>}
-            </div>
-          ))}
+        <div className="space-y-1.5">
+          <DetailSide s={node.side1} won={w === 1} />
+          <p className="text-center text-[10px] font-bold text-muted-foreground">vs</p>
+          <DetailSide s={node.side2} won={w === 2} />
         </div>
-        <dl className="space-y-1">
+        <dl className="space-y-1 rounded-xl border border-border/60 p-3">
           {rows.map(([k, v]) => (
             <div key={k} className="flex gap-2">
               <dt className="w-32 flex-shrink-0 text-xs text-muted-foreground">{k}</dt>
@@ -136,73 +100,141 @@ function DetailModal({ node, onClose }: { node: BracketNode | null; onClose: () 
             </Button>
           </a>
         )}
-        <Button variant="outline" className="w-full" onClick={onClose}>Close</Button>
+        <Button variant="outline" className="w-full" onClick={onClose}>
+          Close
+        </Button>
       </div>
     </Modal>
   );
 }
 
-/**
- * One bracket: every round is a column, derived from the dependency graph.
- *
- * Columns distribute their nodes evenly over the same height (`justify-around`)
- * rather than clumping in the middle, so each node lands on the vertical
- * centroid of the matches feeding it — a 4 → 2 → 1 bracket lines its group
- * finals up against their own pairs, and a 4 → 1 fan-in centres the final on
- * the whole column. That removes the dead space a fixed centre alignment left
- * behind, at any number of rounds.
- */
-function BracketGrid({ bracket, onOpen }: { bracket: Bracket; onOpen: (n: BracketNode) => void }) {
-  const roundLabel = (i: number) => {
-    // A column can mix stages (Group A and Group B matches share round 1).
-    // Each card already shows its own stage, so the header stays generic.
-    const stages = [...new Set(bracket.rounds[i].map((n) => n.stage).filter(Boolean))];
-    return stages.length === 1 ? stages[0]! : `Round ${i + 1}`;
-  };
-  // Nodes that feed a later match get a rail out of their right edge, so a
-  // connection is never a dangling stub on one side of the gap.
-  const feedsForward = new Set(bracket.edges.map((e) => e.from));
-  const lastRound = bracket.rounds.length - 1;
+function roundLabel(bracket: Bracket, i: number) {
+  const stages = [...new Set(bracket.rounds[i].map((n) => n.stage).filter(Boolean))];
+  return stages.length === 1 ? stages[0]! : `Round ${i + 1}`;
+}
+
+/** Desktop: true bracket — rounds as columns, elbow connectors between them. */
+function BracketCanvas({
+  bracket,
+  onOpen,
+}: {
+  bracket: Bracket;
+  onOpen: (n: BracketNode) => void;
+}) {
+  const layout = useBracketLayout(bracket);
+  const [hovered, setHovered] = useState<string | null>(null);
+
+  // Hovering a match lights its whole route through the bracket, in both
+  // directions — where these players came from and where the winner goes on to.
+  const activePath = hovered ? (layout.lineage.get(hovered) ?? null) : null;
+
+  const lastCol = layout.cols - 1;
 
   return (
-    <div className="overflow-x-auto pb-1">
+    <div className="overflow-x-auto pb-2">
       <div
-        className="grid min-w-max gap-x-8 gap-y-3"
-        style={{ gridTemplateColumns: `repeat(${bracket.rounds.length}, minmax(9.5rem, 13rem))` }}
+        className="relative"
+        style={{
+          width: layout.cols * COL_W + (layout.cols - 1) * GUTTER,
+          height: layout.rows * ROW_H + 26,
+        }}
       >
+        {/* round headers */}
         {bracket.rounds.map((_, i) => (
-          <div key={`h${i}`} className="truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
-            {roundLabel(i)}
+          <div
+            key={`h${i}`}
+            className="absolute top-0 flex items-center gap-2"
+            style={{ left: i * (COL_W + GUTTER), width: COL_W }}
+          >
+            <span
+              className={cn(
+                "truncate text-[10px] font-bold uppercase tracking-[0.12em]",
+                i === lastCol ? "text-primary" : "text-muted-foreground"
+              )}
+            >
+              {i === lastCol && layout.cols > 1 ? "🏆 " : ""}
+              {roundLabel(bracket, i)}
+            </span>
+            <span aria-hidden className="h-px flex-1 bg-border/70" />
           </div>
         ))}
-        {bracket.rounds.map((round, i) => (
-          <div
-            key={`c${i}`}
-            className={cn(
-              "flex flex-col gap-2",
-              round.length > 1 ? "justify-around" : "justify-center"
-            )}
-          >
+
+        <div className="absolute left-0" style={{ top: 26 }}>
+          <BracketConnectors layout={layout} colW={COL_W} activePath={activePath} />
+
+          {layout.placed.map((p) => (
+            <div
+              key={p.node.id}
+              className="absolute animate-in-up"
+              style={{
+                left: p.col * (COL_W + GUTTER),
+                top: ((p.start + p.end) / 2) * ROW_H - CARD_H / 2,
+                width: COL_W,
+                minHeight: CARD_H,
+                animationDelay: `${p.col * 60}ms`,
+              }}
+            >
+              <BracketNodeCard
+                node={p.node}
+                isFinal={p.col === lastCol && layout.cols > 1}
+                lit={Boolean(activePath?.has(p.node.id))}
+                dimmed={Boolean(activePath && !activePath.has(p.node.id))}
+                onOpen={() => onOpen(p.node)}
+                onHover={setHovered}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Mobile: the same rounds stacked vertically, so no connector can overlap. */
+function BracketStack({
+  bracket,
+  onOpen,
+}: {
+  bracket: Bracket;
+  onOpen: (n: BracketNode) => void;
+}) {
+  const lastCol = bracket.rounds.length - 1;
+  return (
+    <div className="space-y-1">
+      {bracket.rounds.map((round, i) => (
+        <div key={i}>
+          <div className="mb-1.5 mt-2 flex items-center gap-2">
+            <span
+              className={cn(
+                "text-[10px] font-bold uppercase tracking-[0.12em]",
+                i === lastCol ? "text-primary" : "text-muted-foreground"
+              )}
+            >
+              {i === lastCol && bracket.rounds.length > 1 ? "🏆 " : ""}
+              {roundLabel(bracket, i)}
+            </span>
+            <span aria-hidden className="h-px flex-1 bg-border/70" />
+          </div>
+          <div className="space-y-1.5">
             {round.map((n) => (
-              <div key={n.id} className="relative">
-                {i > 0 && (
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute right-full top-1/2 h-px w-4 bg-border"
-                  />
-                )}
-                {i < lastRound && feedsForward.has(n.id) && (
-                  <span
-                    aria-hidden
-                    className="pointer-events-none absolute left-full top-1/2 h-px w-4 bg-border"
-                  />
-                )}
-                <NodeCard node={n} onOpen={() => onOpen(n)} />
-              </div>
+              <BracketNodeCard
+                key={n.id}
+                node={n}
+                isFinal={i === lastCol && bracket.rounds.length > 1}
+                lit={false}
+                dimmed={false}
+                onOpen={() => onOpen(n)}
+                onHover={() => {}}
+              />
             ))}
           </div>
-        ))}
-      </div>
+          {i < lastCol && (
+            <div className="flex justify-center py-0.5" aria-hidden>
+              <ChevronDown className="h-4 w-4 text-border" />
+            </div>
+          )}
+        </div>
+      ))}
     </div>
   );
 }
@@ -219,26 +251,42 @@ export function BracketView({ brackets }: { brackets: Bracket[] }) {
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4">
       {brackets.map((b) => {
         const all = b.rounds.flat();
         const done = all.filter((n) => n.status === "COMPLETED").length;
+        const waiting = all.filter((n) => n.isPlaceholder).length;
+        const pct = all.length ? Math.round((done / all.length) * 100) : 0;
         return (
-          <section key={b.key} className="rounded-2xl border border-border/60 bg-card/40 p-3 sm:p-4">
-            <header className="mb-3 flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-bold">{b.matchCategory}</h3>
-              <Badge variant="secondary">
-                {done}/{all.length} played
+          <section
+            key={b.key}
+            className="overflow-hidden rounded-2xl border border-border/60 bg-gradient-to-b from-card/70 to-card/30 shadow-sm"
+          >
+            <header className="flex flex-wrap items-center gap-2 border-b border-border/50 px-3 py-2.5 sm:px-4">
+              <h3 className="text-sm font-bold tracking-tight">{b.matchCategory}</h3>
+              <Badge variant="secondary" className="font-mono text-[10px]">
+                {done}/{all.length}
               </Badge>
-              {all.some((n) => n.status === "LIVE") && <Badge variant="live">Live now</Badge>}
-              {all.some((n) => n.isPlaceholder) && (
+              {all.some((n) => n.status === "LIVE") && <Badge variant="live">Live</Badge>}
+              {waiting > 0 && (
                 <span className="flex items-center gap-1 text-[11px] text-muted-foreground">
-                  <Lock className="h-3 w-3" />
-                  {all.filter((n) => n.isPlaceholder).length} awaiting earlier results
+                  <Lock className="h-3 w-3" /> {waiting} awaiting
                 </span>
               )}
+              <div className="ml-auto hidden h-1 w-24 overflow-hidden rounded-full bg-muted sm:block">
+                <div
+                  className="h-full rounded-full bg-emerald-500 transition-[width] duration-500"
+                  style={{ width: `${pct}%` }}
+                />
+              </div>
             </header>
-            <BracketGrid bracket={b} onOpen={setSelected} />
+
+            <div className="hidden px-3 pt-3 sm:block sm:px-4">
+              <BracketCanvas bracket={b} onOpen={setSelected} />
+            </div>
+            <div className="px-3 pb-3 sm:hidden">
+              <BracketStack bracket={b} onOpen={setSelected} />
+            </div>
           </section>
         );
       })}
@@ -246,5 +294,3 @@ export function BracketView({ brackets }: { brackets: Bracket[] }) {
     </div>
   );
 }
-
-
