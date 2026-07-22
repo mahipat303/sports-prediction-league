@@ -141,6 +141,222 @@ function findTarget(ref: Ref, pool: FixtureLite[]): FixtureLite | null {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Read-only bracket graph (Tournament Flow page)
+// ---------------------------------------------------------------------------
+
+export interface BracketSide {
+  label: string;
+  teamName: string | null;
+  teamColor: string | null;
+  players: string[];
+  /** True when this side is still an unresolved reference to an earlier match. */
+  pending: boolean;
+}
+
+export interface BracketNode {
+  id: string;
+  stage: string | null;
+  matchCategory: string;
+  status: string;
+  startTime: string;
+  venue: string | null;
+  liveUrl: string | null;
+  scoreSummary: string | null;
+  isUpset: boolean;
+  isPlaceholder: boolean;
+  winnerSide: number | null;
+  predictionCount: number;
+  side1: BracketSide;
+  side2: BracketSide;
+  /** 0-based column: longest path from an entry-round match. */
+  round: number;
+}
+
+export interface BracketEdge {
+  from: string;
+  to: string;
+  toSide: 1 | 2;
+  want: "winner" | "loser";
+}
+
+export interface Bracket {
+  key: string;
+  sportName: string;
+  sportIcon: string | null;
+  matchCategory: string;
+  rounds: BracketNode[][];
+  edges: BracketEdge[];
+}
+
+/** Shape `buildBrackets` needs — matches the include in the page's query. */
+export type BracketInput = FixtureLite & {
+  sport: { name: string; icon: string | null };
+  matchCategory: string;
+  venue: string | null;
+  liveUrl: string | null;
+  scoreSummary: string | null;
+  isUpset: boolean;
+  side1Team: { name: string; color: string } | null;
+  side2Team: { name: string; color: string } | null;
+  players: { side: number; player: { name: string } }[];
+  _count: { predictions: number };
+};
+
+const MAX_DEPTH = 20; // guard against a malformed reference cycling forever
+
+/**
+ * Locate the upstream fixtures a reference points at, **for display only**.
+ *
+ * Starts from the same `findTarget` the progression engine uses. It adds one
+ * fallback that progression does not have: `findTarget`'s "Winner Group X"
+ * case looks exclusively for a fixture staged `Group Final`, but Badminton and
+ * TT go straight from `Group X Initial` to the `Grand Final` with no group
+ * final in between, so the reference resolves to nothing there.
+ *
+ * For the diagram we still know structurally that the final depends on that
+ * group, so we link it to every initial match in the group (an N→1 fan-in).
+ * This only affects what is drawn — it never resolves a participant and never
+ * writes anything, so the bracket page can show the real shape of those 14
+ * sport/category brackets while progression behaviour is left untouched.
+ */
+function findDisplayTargets(ref: Ref, pool: FixtureLite[]): FixtureLite[] {
+  const direct = findTarget(ref, pool);
+  if (direct) return [direct];
+  if (ref.kind === "group") {
+    return pool.filter((f) => stageIs(f, `Group ${ref.group} Initial`));
+  }
+  return [];
+}
+
+/**
+ * Build a read-only dependency graph per sport + match category.
+ *
+ * Reuses the same `parsePlaceholder` + `findTarget` pair that drives
+ * `propagateBracket`, so the diagram can never disagree with the progression
+ * logic — it is the same traversal without the writes.
+ *
+ * A side's upstream reference is `side*Source` when it has already been
+ * resolved (retained precisely so the link survives), otherwise the current
+ * label while it is still a placeholder. Rounds are derived from the graph
+ * (longest path from a root), never from hardcoded stage names, so a sport
+ * with no group phase simply starts at its own entry round.
+ */
+export function buildBrackets(fixtures: BracketInput[]): Bracket[] {
+  const groups = new Map<string, BracketInput[]>();
+  for (const f of fixtures) {
+    const key = `${f.sport.name}|${f.matchCategory}`;
+    (groups.get(key) ?? groups.set(key, []).get(key)!).push(f);
+  }
+
+  const out: Bracket[] = [];
+  for (const [key, pool] of groups) {
+    const edges: BracketEdge[] = [];
+    const incoming = new Map<string, BracketEdge[]>();
+
+    for (const f of pool) {
+      for (const side of [1, 2] as const) {
+        const label = side === 1 ? f.side1Label : f.side2Label;
+        const stored = side === 1 ? f.side1Source : f.side2Source;
+        const source = stored ?? (isPlaceholderLabel(label) ? label : null);
+        if (!source) continue;
+        const parsed = parsePlaceholder(source);
+        if (!parsed) continue;
+        const targets = findDisplayTargets(
+          parsed.ref,
+          pool.filter((o) => o.id !== f.id)
+        );
+        for (const target of targets) {
+          const edge: BracketEdge = {
+            from: target.id,
+            to: f.id,
+            toSide: side,
+            want: parsed.want,
+          };
+          edges.push(edge);
+          (incoming.get(f.id) ?? incoming.set(f.id, []).get(f.id)!).push(edge);
+        }
+      }
+    }
+
+    // Longest path from a root. Memoised, with a visited set so a malformed
+    // reference that forms a cycle cannot hang the page.
+    const depthCache = new Map<string, number>();
+    const depthOf = (id: string, seen: Set<string>): number => {
+      const cached = depthCache.get(id);
+      if (cached !== undefined) return cached;
+      if (seen.has(id) || seen.size > MAX_DEPTH) return 0;
+      seen.add(id);
+      const parents = incoming.get(id) ?? [];
+      const d = parents.length
+        ? Math.min(
+            MAX_DEPTH,
+            Math.max(...parents.map((e) => depthOf(e.from, new Set(seen)) + 1))
+          )
+        : 0;
+      depthCache.set(id, d);
+      return d;
+    };
+
+    const sideOf = (f: BracketInput, n: 1 | 2): BracketSide => {
+      const label = n === 1 ? f.side1Label : f.side2Label;
+      const team = n === 1 ? f.side1Team : f.side2Team;
+      return {
+        label,
+        teamName: team?.name ?? null,
+        teamColor: team?.color ?? null,
+        players: f.players.filter((p) => p.side === n).map((p) => p.player.name),
+        pending: isPlaceholderLabel(label),
+      };
+    };
+
+    const nodes: BracketNode[] = pool.map((f) => ({
+      id: f.id,
+      stage: f.stage,
+      matchCategory: f.matchCategory,
+      status: f.status,
+      startTime: f.startTime.toISOString(),
+      venue: f.venue,
+      liveUrl: f.liveUrl,
+      scoreSummary: f.scoreSummary,
+      isUpset: f.isUpset,
+      isPlaceholder: f.isPlaceholder,
+      winnerSide: f.winnerSide,
+      predictionCount: f._count.predictions,
+      side1: sideOf(f, 1),
+      side2: sideOf(f, 2),
+      round: depthOf(f.id, new Set()),
+    }));
+
+    const maxRound = nodes.reduce((m, n) => Math.max(m, n.round), 0);
+    const rounds: BracketNode[][] = Array.from({ length: maxRound + 1 }, () => []);
+    for (const n of nodes) rounds[n.round].push(n);
+    for (const r of rounds) {
+      r.sort(
+        (a, b) =>
+          new Date(a.startTime).getTime() - new Date(b.startTime).getTime() ||
+          a.id.localeCompare(b.id)
+      );
+    }
+
+    const first = pool[0];
+    out.push({
+      key,
+      sportName: first.sport.name,
+      sportIcon: first.sport.icon,
+      matchCategory: first.matchCategory,
+      rounds,
+      edges,
+    });
+  }
+
+  return out.sort(
+    (a, b) =>
+      a.sportName.localeCompare(b.sportName) ||
+      a.matchCategory.localeCompare(b.matchCategory)
+  );
+}
+
 export interface PropagationChange {
   fixtureId: string;
   side: 1 | 2;
