@@ -136,7 +136,7 @@ export default async function BracketPage(props: { searchParams: Promise<Search>
             return {
               key: sport,
               label: `${icon} ${sport}`.trim(),
-              content: <BracketView brackets={forSport(sport)} />,
+              content: <BracketView key={sport} brackets={forSport(sport)} />,
             };
           })}
         />
