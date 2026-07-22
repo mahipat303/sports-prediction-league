@@ -4,7 +4,7 @@ import { cn, formatTime, istDayKey, IST_TZ } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
-import { ScheduleFilters } from "@/components/schedule-filters";
+import { FilterBar } from "@/components/filter-bar";
 
 export const dynamic = "force-dynamic";
 
@@ -168,11 +168,38 @@ export default async function SchedulePage(props: { searchParams: Promise<Search
         ))}
       </div>
 
-      <ScheduleFilters
-        dates={dates}
-        sports={sports}
-        categories={categories}
-        teams={teams.map((t) => ({ id: t.id, name: t.name }))}
+      <FilterBar
+        search={{ key: "q", placeholder: "Search team, player, sport…" }}
+        filters={[
+          { key: "date", allLabel: "All dates", options: dates },
+          {
+            key: "sport",
+            allLabel: "All sports",
+            options: sports.map((s) => ({ value: s, label: s })),
+            className: "w-full sm:w-36",
+          },
+          {
+            key: "category",
+            allLabel: "All categories",
+            options: categories.map((c) => ({ value: c, label: c })),
+          },
+          {
+            key: "team",
+            allLabel: "All teams",
+            options: teams.map((t) => ({ value: t.id, label: t.name })),
+          },
+          {
+            key: "status",
+            allLabel: "All statuses",
+            options: [
+              { value: "upcoming", label: "🟢 Upcoming" },
+              { value: "live", label: "🟡 Live" },
+              { value: "completed", label: "✅ Completed" },
+              { value: "cancelled", label: "❌ Cancelled" },
+            ],
+            className: "w-full sm:w-36",
+          },
+        ]}
       />
 
       {days.length === 0 && (

@@ -5,8 +5,7 @@ import { prisma } from "@/lib/prisma";
 import { formatDateTime, cn } from "@/lib/utils";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Avatar } from "@/components/ui/avatar";
-import { InsightsFilters } from "@/components/insights-filters";
-import { ChampionFilters } from "@/components/insights-filters";
+import { FilterBar } from "@/components/filter-bar";
 import { InsightsExport } from "@/components/insights-export";
 import { PredictionInsightCard, type MatchInsight } from "@/components/prediction-insight-card";
 
@@ -20,6 +19,7 @@ type Search = {
   category?: string;
   confidence?: string;
   status?: string;
+  result?: string;
   q?: string;
 };
 
@@ -84,6 +84,12 @@ export default async function InsightsPage(props: { searchParams: Promise<Search
     const rows = all
       .filter((p) => (sp.confidence ? p.confidence === sp.confidence : true))
       .filter((p) => (sp.user ? p.userId === sp.user : true))
+      .filter((p) =>
+        sp.result === "correct" ? p.isCorrect === true
+        : sp.result === "wrong" ? p.isCorrect === false
+        : sp.result === "pending" ? p.isCorrect === null
+        : true
+      )
       .filter((p) =>
         q ? p.user.name.toLowerCase().includes(q) || p.user.email.toLowerCase().includes(q) : true
       )
@@ -197,11 +203,31 @@ export default async function InsightsPage(props: { searchParams: Promise<Search
 
       {tab === "matches" ? (
         <>
-          <InsightsFilters
-            sports={sports}
-            categories={categories}
-            teams={teams.map((t) => ({ id: t.id, name: t.name }))}
-            users={users.map((u) => ({ id: u.id, name: u.name }))}
+          <FilterBar
+            keep={["tab"]}
+            search={{ key: "q", placeholder: "Search user…", className: "w-full sm:w-44" }}
+            filters={[
+              { key: "user", allLabel: "All users", options: users.map((u) => ({ value: u.id, label: u.name })) },
+              { key: "sport", allLabel: "All sports", options: sports.map((s) => ({ value: s, label: s })), className: "w-full sm:w-36" },
+              { key: "category", allLabel: "All categories", options: categories.map((c) => ({ value: c, label: c })) },
+              { key: "team", allLabel: "All teams", options: teams.map((t) => ({ value: t.id, label: t.name })) },
+              { key: "confidence", allLabel: "All confidence", options: [
+                { value: "LOW", label: "🟢 Low" },
+                { value: "MEDIUM", label: "🟡 Medium" },
+                { value: "HIGH", label: "🔴 High" },
+              ], className: "w-full sm:w-36" },
+              { key: "result", allLabel: "All results", options: [
+                { value: "correct", label: "✅ Correct" },
+                { value: "wrong", label: "❌ Wrong" },
+                { value: "pending", label: "⏳ Not scored" },
+              ], className: "w-full sm:w-36" },
+              { key: "status", allLabel: "All statuses", options: [
+                { value: "SCHEDULED", label: "Scheduled" },
+                { value: "LOCKED", label: "Locked" },
+                { value: "LIVE", label: "Live" },
+                { value: "COMPLETED", label: "Completed" },
+              ], className: "w-full sm:w-36" },
+            ]}
           />
           {matches.length === 0 ? (
             <Card>
@@ -219,9 +245,13 @@ export default async function InsightsPage(props: { searchParams: Promise<Search
         </>
       ) : (
         <>
-          <ChampionFilters
-            teams={teams.map((t) => ({ id: t.id, name: t.name }))}
-            users={users.map((u) => ({ id: u.id, name: u.name }))}
+          <FilterBar
+            keep={["tab"]}
+            search={{ key: "q", placeholder: "Search user…", className: "w-full sm:w-44" }}
+            filters={[
+              { key: "user", allLabel: "All users", options: users.map((u) => ({ value: u.id, label: u.name })) },
+              { key: "team", allLabel: "All teams", options: teams.map((t) => ({ value: t.id, label: t.name })) },
+            ]}
           />
           <Card>
             <CardHeader>
