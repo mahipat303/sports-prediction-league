@@ -115,6 +115,19 @@ function findTarget(ref: Ref, pool: FixtureLite[]): FixtureLite | null {
       // placeholder we can read its own labels; once resolved we identify it
       // by its participants being winners of that group's initial matches.
       const finals = pool.filter((f) => stageIs(f, "Group Final"));
+
+      // A group played as a single match has no decider to look for: its one
+      // match *is* the group, so "Winner Group A" means that match's winner.
+      // Guarded to exactly one match, so this can never pick between rival
+      // winners — where a group has several matches we still require a real
+      // Group Final fixture rather than guessing.
+      if (finals.length === 0) {
+        const groupMatches = pool.filter((f) =>
+          stageIs(f, `Group ${ref.group} Initial`)
+        );
+        if (groupMatches.length === 1) return groupMatches[0];
+      }
+
       const byLabel = finals.find((f) =>
         [f.side1Label, f.side2Label].some((l) =>
           new RegExp(`group\\s+${ref.group}\\b`, "i").test(l)
