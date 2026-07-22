@@ -1,5 +1,5 @@
 import { prisma } from "@/lib/prisma";
-import { Confidence, NotificationType, type Prisma } from "@prisma/client";
+import { Confidence, NotificationType, type FixtureStatus, type Prisma } from "@prisma/client";
 
 // Admin-configurable scoring values with sensible defaults.
 export const DEFAULT_SETTINGS = {
@@ -414,4 +414,35 @@ export async function lockDueFixtures() {
     where: { status: "SCHEDULED", lockTime: { lte: new Date() } },
     data: { status: "LOCKED" },
   });
+}
+
+/**
+ * The status a fixture should have once it has been rescheduled.
+ *
+ * `lockDueFixtures` is a one-way ratchet (SCHEDULED → LOCKED) because it only
+ * ever runs forward in time. Rescheduling breaks that assumption: a fixture
+ * that auto-locked at its old start time must reopen when it is moved into the
+ * future, and there is otherwise no code path that can ever unlock it.
+ *
+ * This applies the *same* predicate `lockDueFixtures` uses (`lockTime` vs now),
+ * so the lock rule stays defined in one place.
+ *
+ * Terminal and admin-driven states are left alone:
+ * - COMPLETED / CANCELLED — historical; callers should skip these outright.
+ * - LIVE — the admin explicitly started the match; silently un-starting it
+ *   would be surprising.
+ *
+ * Note a manual "Close predictions" is stored as LOCKED, exactly like an
+ * automatic lock, so rescheduling also reopens a manually-closed fixture.
+ * That is intended: rescheduling implies the match has not been played.
+ */
+export function statusAfterReschedule(
+  current: FixtureStatus,
+  lockTime: Date,
+  now: Date = new Date()
+): FixtureStatus {
+  if (current === "COMPLETED" || current === "CANCELLED" || current === "LIVE") {
+    return current;
+  }
+  return lockTime > now ? "SCHEDULED" : "LOCKED";
 }

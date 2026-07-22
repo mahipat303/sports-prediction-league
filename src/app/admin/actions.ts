@@ -4,16 +4,16 @@ import { revalidatePath } from "next/cache";
 import { z } from "zod";
 import { prisma } from "@/lib/prisma";
 import { requireAdmin } from "@/lib/auth";
-import { evaluateFixture, evaluateChampionPredictions, recomputeLeaderboardEntry, getSettings, DEFAULT_SETTINGS, type SettingKey } from "@/lib/scoring";
+import { evaluateFixture, evaluateChampionPredictions, recomputeLeaderboardEntry, getSettings, statusAfterReschedule, DEFAULT_SETTINGS, type SettingKey } from "@/lib/scoring";
 import { importWorkbook, type ImportResult } from "@/lib/excel-import";
 import { resolvePlayerFixtures, reresolveAllFixtures } from "@/lib/fixture-resolution";
 import { propagateBracket } from "@/lib/bracket";
 import { awardTeamPointsForFixture, recomputeAllTeamPoints, seedRulesFromFixtures } from "@/lib/team-points";
 import { parseIstInput, withIstDate, withIstTime } from "@/lib/utils";
-import { NotificationType, PlayerCategory } from "@prisma/client";
+import { NotificationType, PlayerCategory, type FixtureStatus } from "@prisma/client";
 
 function revalidateAll() {
-  for (const path of ["/", "/fixtures", "/teams", "/players", "/leaderboard", "/stats", "/admin"]) {
+  for (const path of ["/", "/fixtures", "/schedule", "/predictions", "/teams", "/players", "/leaderboard", "/stats", "/admin"]) {
     revalidatePath(path, "layout");
   }
 }
@@ -417,9 +417,25 @@ export async function updateFixtureSchedule(formData: FormData) {
   const startTime = parseIstInput(raw);
   if (!startTime) { console.warn("Invalid start time"); return; }
 
+  const fixture = await prisma.fixture.findUnique({
+    where: { id: fixtureId },
+    select: { status: true },
+  });
+  if (!fixture) { console.warn("Fixture not found"); return; }
+  // Completed matches are historical — their startTime feeds daily-bonus day
+  // grouping, so rescheduling one could retroactively change awarded points.
+  // Bulk edit already refuses these; match that here.
+  if (fixture.status === "COMPLETED") {
+    console.warn("Refusing to reschedule a completed fixture");
+    return;
+  }
+
+  const lockTime = await lockFor(startTime);
   await prisma.fixture.update({
     where: { id: fixtureId },
-    data: { startTime, lockTime: await lockFor(startTime) },
+    // Recalculate the lock state for the new time: a fixture that auto-locked
+    // at its old start must reopen when moved into the future.
+    data: { startTime, lockTime, status: statusAfterReschedule(fixture.status, lockTime) },
   });
   revalidateAll();
   return;
@@ -460,7 +476,9 @@ async function bulkApply(
   let updated = 0;
 
   for (const f of targets) {
-    let data: { startTime?: Date; lockTime?: Date; status?: "SCHEDULED" | "LOCKED" | "LIVE" | "CANCELLED" } | null = null;
+    // status widened to FixtureStatus: when `includeCompleted` is on, a
+    // rescheduled COMPLETED fixture keeps its COMPLETED status unchanged.
+    let data: { startTime?: Date; lockTime?: Date; status?: FixtureStatus } | null = null;
 
     if (action === "date" || action === "time" || action === "datetime") {
       // Merge the new date and/or time onto the fixture's existing start.
@@ -473,7 +491,12 @@ async function bulkApply(
             ? withIstDate(current, value)
             : withIstTime(current, value);
       if (!next) continue;
-      data = { startTime: next, lockTime: await lockFor(next) };
+      const nextLock = await lockFor(next);
+      data = {
+        startTime: next,
+        lockTime: nextLock,
+        status: statusAfterReschedule(f.status, nextLock),
+      };
     } else if (action === "status") {
       if (!["SCHEDULED", "LOCKED", "LIVE", "CANCELLED"].includes(value)) continue;
       data = { status: value as "SCHEDULED" | "LOCKED" | "LIVE" | "CANCELLED" };
