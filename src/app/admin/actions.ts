@@ -175,8 +175,9 @@ export async function createFixture(formData: FormData) {
     console.warn("Sides must be different"); return;
   }
 
-  const startTime = new Date(data.startTime);
-  if (isNaN(startTime.getTime())) { console.warn("Invalid start time"); return; }
+  // datetime-local carries no offset — read it as IST wall-clock (see utils.ts).
+  const startTime = parseIstInput(data.startTime);
+  if (!startTime) { console.warn("Invalid start time"); return; }
   const settings = await getSettings();
 
   await prisma.fixture.create({

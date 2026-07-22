@@ -3,7 +3,7 @@ import { formatCurrency, CATEGORY_META } from "@/lib/utils";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { Avatar } from "@/components/ui/avatar";
-import { PlayerFilters } from "@/components/player-filters";
+import { FilterBar } from "@/components/filter-bar";
 
 export const dynamic = "force-dynamic";
 
@@ -51,9 +51,31 @@ export default async function PlayersPage(props: {
         </p>
       </div>
 
-      <PlayerFilters
-        teams={teams.map((t) => t.name)}
-        sports={sports.map((s) => s.name)}
+      <FilterBar
+        search={{ key: "q", placeholder: "Search players…" }}
+        filters={[
+          {
+            key: "team",
+            allLabel: "All teams",
+            options: teams.map((t) => ({ value: t.name, label: t.name })),
+          },
+          {
+            key: "sport",
+            allLabel: "All sports",
+            options: sports.map((s) => ({ value: s.name, label: s.name })),
+          },
+          {
+            key: "category",
+            allLabel: "All categories",
+            options: [
+              { value: "PLATINUM", label: "💎 Platinum" },
+              { value: "GOLD", label: "🥇 Gold" },
+              { value: "SILVER", label: "🥈 Silver" },
+              { value: "BRONZE", label: "🥉 Bronze" },
+            ],
+            className: "w-full sm:w-36",
+          },
+        ]}
       />
 
       {filtered.length === 0 ? (

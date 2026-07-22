@@ -16,6 +16,11 @@ export interface BulkFixture {
   label: string; // "Chess · Male Singles · Dev vs Abhi"
   status: string;
   startTime: string;
+  sport: string;
+  stage: string;
+  category: string;
+  day: string; // IST yyyy-mm-dd
+  dayLabel: string;
 }
 
 type Action = "date" | "time" | "datetime" | "status" | "openPredictions" | "closePredictions";
@@ -33,9 +38,24 @@ const ACTIONS: { value: Action; label: string; input: "date" | "time" | "datetim
  * Checkbox selection + bulk actions for the admin Fixtures list.
  * Extensible: add a new entry to ACTIONS and a matching case server-side.
  */
-export function BulkFixtureActions({ fixtures }: { fixtures: BulkFixture[] }) {
+export function BulkFixtureActions({
+  fixtures,
+  sports,
+  stages,
+}: {
+  fixtures: BulkFixture[];
+  sports: string[];
+  stages: string[];
+}) {
   const router = useRouter();
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  // Filters are local state, not URL params: navigating would remount this
+  // component and silently discard a half-built selection.
+  const [fStatus, setFStatus] = useState("");
+  const [fSport, setFSport] = useState("");
+  const [fStage, setFStage] = useState("");
+  const [fCategory, setFCategory] = useState("");
+  const [fDay, setFDay] = useState("");
   const [action, setAction] = useState<Action>("datetime");
   const [value, setValue] = useState("");
   const [includeCompleted, setIncludeCompleted] = useState(false);
@@ -57,9 +77,31 @@ export function BulkFixtureActions({ fixtures }: { fixtures: BulkFixture[] }) {
       return next;
     });
   }
-  const allSelected = fixtures.length > 0 && selected.size === fixtures.length;
+  const visible = fixtures.filter(
+    (f) =>
+      (!fStatus || f.status === fStatus) &&
+      (!fSport || f.sport === fSport) &&
+      (!fStage || f.stage === fStage) &&
+      (!fCategory || f.category === fCategory) &&
+      (!fDay || f.day === fDay)
+  );
+  const categories = [...new Set(fixtures.map((f) => f.category))].sort();
+  const days = [...new Map(fixtures.map((f) => [f.day, f.dayLabel])).entries()].sort(
+    ([a], [b]) => a.localeCompare(b)
+  );
+  const filtersActive = Boolean(fStatus || fSport || fStage || fCategory || fDay);
+
+  // "Select all" acts on what's visible, so a filter narrows the target set.
+  const allVisibleSelected =
+    visible.length > 0 && visible.every((f) => selected.has(f.id));
   const toggleAll = () =>
-    setSelected(allSelected ? new Set() : new Set(fixtures.map((f) => f.id)));
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (allVisibleSelected) visible.forEach((f) => next.delete(f.id));
+      else visible.forEach((f) => next.add(f.id));
+      return next;
+    });
+  const hiddenSelected = selected.size - visible.filter((f) => selected.has(f.id)).length;
 
   function apply() {
     const fd = new FormData();
@@ -87,12 +129,52 @@ export function BulkFixtureActions({ fixtures }: { fixtures: BulkFixture[] }) {
 
   return (
     <div className="space-y-3">
+      {/* Narrow the list before selecting. Selection survives filter changes. */}
       <div className="flex flex-wrap items-center gap-2">
-        <Button size="sm" variant="outline" onClick={toggleAll} className="gap-1.5">
-          {allSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
-          {allSelected ? "Clear all" : "Select all"}
+        <Select value={fSport} onChange={(e) => setFSport(e.target.value)} className="w-full sm:w-36">
+          <option value="">All sports</option>
+          {sports.map((s) => <option key={s} value={s}>{s}</option>)}
+        </Select>
+        <Select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className="w-full sm:w-36">
+          <option value="">All statuses</option>
+          {["SCHEDULED", "LOCKED", "LIVE", "COMPLETED", "CANCELLED"].map((s) => (
+            <option key={s} value={s}>{s}</option>
+          ))}
+        </Select>
+        <Select value={fStage} onChange={(e) => setFStage(e.target.value)} className="w-full sm:w-40">
+          <option value="">All stages</option>
+          {stages.map((s) => <option key={s} value={s}>{s}</option>)}
+        </Select>
+        <Select value={fCategory} onChange={(e) => setFCategory(e.target.value)} className="w-full sm:w-40">
+          <option value="">All categories</option>
+          {categories.map((c) => <option key={c} value={c}>{c}</option>)}
+        </Select>
+        <Select value={fDay} onChange={(e) => setFDay(e.target.value)} className="w-full sm:w-44">
+          <option value="">All dates</option>
+          {days.map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </Select>
+        {filtersActive && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => { setFStatus(""); setFSport(""); setFStage(""); setFCategory(""); setFDay(""); }}
+          >
+            Clear filters
+          </Button>
+        )}
+      </div>
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Button size="sm" variant="outline" onClick={toggleAll} className="gap-1.5" disabled={visible.length === 0}>
+          {allVisibleSelected ? <CheckSquare className="h-4 w-4" /> : <Square className="h-4 w-4" />}
+          {allVisibleSelected ? "Clear shown" : `Select shown (${visible.length})`}
         </Button>
         <Badge variant="secondary">{selected.size} selected</Badge>
+        {hiddenSelected > 0 && (
+          <span className="text-xs text-amber-500">
+            ⚠️ {hiddenSelected} selected {hiddenSelected === 1 ? "match is" : "matches are"} hidden by the filters
+          </span>
+        )}
 
         <Select value={action} onChange={(e) => { setAction(e.target.value as Action); setValue(""); }} className="w-52">
           {ACTIONS.map((a) => (
@@ -125,7 +207,12 @@ export function BulkFixtureActions({ fixtures }: { fixtures: BulkFixture[] }) {
 
       {/* Selection list */}
       <div className="max-h-64 space-y-1 overflow-y-auto rounded-xl border border-border/50 p-2">
-        {fixtures.map((f) => (
+        {visible.length === 0 && (
+          <p className="p-4 text-center text-sm text-muted-foreground">
+            No fixtures match these filters. 🔍
+          </p>
+        )}
+        {visible.map((f) => (
           // A plain row (not a <label>) — wrapping a checkbox in a label makes
           // a click on the box itself toggle twice and cancel out.
           <div
