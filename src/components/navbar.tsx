@@ -7,7 +7,7 @@ import type { Session } from "next-auth";
 import { signOut } from "next-auth/react";
 import {
   Trophy, Menu, X, LogOut, Shield, Bell, CalendarDays, CalendarClock, Users,
-  UserRound, BarChart3, ListChecks, Home,
+  UserRound, BarChart3, ListChecks, Home, GitBranch,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { OpsHubIcon } from "@/components/opshub-logo";
@@ -22,8 +22,9 @@ const links = [
   { href: "/players", label: "Players", icon: UserRound },
   { href: "/fixtures", label: "Fixtures", icon: CalendarDays },
   { href: "/schedule", label: "Schedule", icon: CalendarClock },
+  { href: "/bracket", label: "Bracket", icon: GitBranch },
   { href: "/leaderboard", label: "Leaderboard", icon: Trophy },
-  { href: "/predictions", label: "My Predictions", icon: ListChecks },
+  { href: "/predictions", label: "Predictions", mobileLabel: "My Predictions", icon: ListChecks },
   { href: "/stats", label: "Stats", icon: BarChart3 },
 ];
 
@@ -54,7 +55,7 @@ export function Navbar({ session }: { session: Session | null }) {
               key={href}
               href={href}
               className={cn(
-                "rounded-lg px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
+                "whitespace-nowrap rounded-lg px-2.5 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:bg-accent hover:text-foreground",
                 pathname === href && "bg-accent text-foreground"
               )}
             >
@@ -65,7 +66,7 @@ export function Navbar({ session }: { session: Session | null }) {
             <Link
               href="/admin"
               className={cn(
-                "flex items-center gap-1 rounded-lg px-3 py-1.5 text-sm font-medium text-amber-500 transition-colors hover:bg-accent",
+                "flex items-center gap-1 whitespace-nowrap rounded-lg px-2.5 py-1.5 text-sm font-medium text-amber-500 transition-colors hover:bg-accent",
                 pathname.startsWith("/admin") && "bg-accent"
               )}
             >
@@ -120,7 +121,7 @@ export function Navbar({ session }: { session: Session | null }) {
 
       {open && (
         <nav className="border-t border-border/50 px-4 py-2 lg:hidden">
-          {links.map(({ href, label, icon: Icon }) => (
+          {links.map(({ href, label, mobileLabel, icon: Icon }) => (
             <Link
               key={href}
               href={href}
@@ -130,7 +131,7 @@ export function Navbar({ session }: { session: Session | null }) {
                 pathname === href && "bg-accent text-foreground"
               )}
             >
-              <Icon className="h-4 w-4" /> {label}
+              <Icon className="h-4 w-4" /> {mobileLabel ?? label}
             </Link>
           ))}
           {isAdmin && (
