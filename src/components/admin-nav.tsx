@@ -15,7 +15,8 @@ const tabs = [
   { href: "/admin/players", label: "Players" },
   { href: "/admin/users", label: "Users" },
   { href: "/admin/settings", label: "Settings" },
-  { href: "/ceremony", label: "🏆 Awards" },
+  { href: "/admin/ceremony", label: "🎛️ Ceremony" },
+  { href: "/ceremony", label: "🏆 Present" },
 ];
 
 export function AdminNav() {

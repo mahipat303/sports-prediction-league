@@ -2,6 +2,7 @@ import { prisma } from "@/lib/prisma";
 import { accuracy } from "@/lib/utils";
 import { LEADERBOARD_ORDER } from "@/lib/scoring";
 import { getTeamPointStandings } from "@/lib/team-points";
+import { getCeremonyConfig, type CustomAward, type SoundCue } from "@/lib/ceremony-config";
 
 /**
  * Read-only aggregator for the Awards Ceremony.
@@ -42,6 +43,9 @@ export interface CategoryAward {
   runnerUp: AwardWinner | null;
   score: string | null;
   isUpset: boolean;
+  /** Admin-configured (Phase 2); null when unset. */
+  presenter: string | null;
+  description: string | null;
 }
 
 export interface TeamAward {
@@ -65,11 +69,21 @@ export interface PredictionAward {
   bestStreak: number;
 }
 
+export interface CeremonySound {
+  enabled: boolean;
+  style: "classic" | "fun";
+  urls: Partial<Record<SoundCue, string>>;
+}
+
 export interface CeremonyData {
   recap: CeremonyRecap;
   categoryAwards: CategoryAward[];
   teamAwards: TeamAward[];
   predictionAwards: PredictionAward[];
+  customAwards: CustomAward[];
+  teamPresenters: { champion: string | null; runnerUp: string | null; third: string | null };
+  speeches: { opening: string | null; closing: string | null };
+  sound: CeremonySound;
   tournamentName: string;
   year: number;
 }
@@ -97,6 +111,47 @@ const sideLoser = (
     teamColor: team?.color ?? null,
   };
 };
+
+export interface AdminAward {
+  id: string;
+  sport: string;
+  sportIcon: string | null;
+  category: string;
+  champion: string;
+  hidden: boolean;
+  presenter: string;
+  description: string;
+}
+
+/**
+ * Every category award for the admin config screen — unlike `getCeremonyData`,
+ * this does NOT drop hidden awards; it marks them, and lists them in the
+ * currently-configured order so the reorder controls act on what's shown.
+ */
+export async function getCeremonyAdminAwards(): Promise<AdminAward[]> {
+  const [finals, config] = await Promise.all([
+    prisma.fixture.findMany({
+      where: { stage: "Grand Final", status: "COMPLETED" },
+      include: { sport: true },
+      orderBy: [{ sport: { name: "asc" } }, { matchCategory: "asc" }],
+    }),
+    getCeremonyConfig(),
+  ]);
+  const hidden = new Set(config.hidden);
+  const rank = new Map(config.order.map((id, i) => [id, i]));
+  return finals
+    .map((f) => ({
+      id: f.id,
+      sport: f.sport.name,
+      sportIcon: f.sport.icon,
+      category: f.matchCategory,
+      champion: f.winnerSide === 1 ? f.side1Label : f.winnerSide === 2 ? f.side2Label : "—",
+      hidden: hidden.has(f.id),
+      presenter: config.presenters[f.id] ?? "",
+      description: config.descriptions[f.id] ?? "",
+    }))
+    .sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
+}
 
 export async function getCeremonyData(): Promise<CeremonyData> {
   const [
@@ -134,6 +189,8 @@ export async function getCeremonyData(): Promise<CeremonyData> {
     prisma.leaderboardEntry.findMany({ include: { user: true }, orderBy: LEADERBOARD_ORDER }),
     getTeamPointStandings(),
   ]);
+
+  const config = await getCeremonyConfig();
 
   // ---- recap ------------------------------------------------------------
   let correct = 0;
@@ -192,7 +249,8 @@ export async function getCeremonyData(): Promise<CeremonyData> {
   };
 
   // ---- category awards (one per Grand Final) ----------------------------
-  const categoryAwards: CategoryAward[] = finals.map((f) => ({
+  const hidden = new Set(config.hidden);
+  const allCategoryAwards: CategoryAward[] = finals.map((f) => ({
     id: f.id,
     sport: f.sport.name,
     sportIcon: f.sport.icon,
@@ -202,7 +260,16 @@ export async function getCeremonyData(): Promise<CeremonyData> {
     runnerUp: sideLoser(f),
     score: f.scoreSummary,
     isUpset: f.isUpset,
+    presenter: config.presenters[f.id] ?? null,
+    description: config.descriptions[f.id] ?? null,
   }));
+
+  // Apply the admin's hide + order choices: listed ids first in the given
+  // order, everything else after in the default (sport/category) order.
+  const rank = new Map(config.order.map((id, i) => [id, i]));
+  const categoryAwards = allCategoryAwards
+    .filter((a) => !hidden.has(a.id))
+    .sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
 
   // ---- team awards ------------------------------------------------------
   const teamAwards: TeamAward[] = teamStandings.map((t, i) => ({ ...t, rank: i + 1 }));
@@ -226,6 +293,21 @@ export async function getCeremonyData(): Promise<CeremonyData> {
     categoryAwards,
     teamAwards,
     predictionAwards,
+    customAwards: config.customAwards,
+    teamPresenters: {
+      champion: config.presenters["team:champion"] ?? null,
+      runnerUp: config.presenters["team:runnerUp"] ?? null,
+      third: config.presenters["team:third"] ?? null,
+    },
+    speeches: {
+      opening: config.speeches.opening ?? null,
+      closing: config.speeches.closing ?? null,
+    },
+    sound: {
+      enabled: config.sound.enabled,
+      style: config.sound.style,
+      urls: config.sound.urls,
+    },
     tournamentName: tournament?.name ?? "OpsHub Sports Day",
     year: tournament?.eventDate ? new Date(tournament.eventDate).getFullYear() : new Date().getFullYear(),
   };

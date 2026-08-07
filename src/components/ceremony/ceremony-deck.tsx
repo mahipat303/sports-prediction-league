@@ -6,6 +6,7 @@ import {
   ChevronLeft, ChevronRight, Sparkles, Maximize, PartyPopper, Volume2, VolumeX,
 } from "lucide-react";
 import type { CeremonyData, CategoryAward, TeamAward, PredictionAward } from "@/lib/ceremony";
+import type { CustomAward } from "@/lib/ceremony-config";
 import { CountUp } from "./count-up";
 import { Confetti } from "./confetti";
 import { Fireworks } from "./fireworks";
@@ -24,15 +25,25 @@ type Slide =
   | { kind: "predReveal"; pred: PredictionAward; place: Place }
   | { kind: "teamPresenter"; place: Place }
   | { kind: "teamReveal"; team: TeamAward; place: Place }
+  | { kind: "customReveal"; award: CustomAward }
   | { kind: "closing" };
 
 type Phase = "pre" | "counting" | "shown";
 
 const isRevealSlide = (s: Slide) =>
-  s.kind === "reveal" || s.kind === "teamReveal" || s.kind === "predReveal";
+  s.kind === "reveal" || s.kind === "teamReveal" || s.kind === "predReveal" || s.kind === "customReveal";
 const isChampionReveal = (s: Slide) =>
   (s.kind === "reveal" && s.place === "champion") ||
   ((s.kind === "teamReveal" || s.kind === "predReveal") && s.place === "champion");
+
+/** Which configured sound cue fires for this reveal (for custom audio URLs). */
+function cueForSlide(s: Slide): string {
+  if (s.kind === "reveal") return s.place === "champion" ? "champion" : "runnerUp";
+  if (s.kind === "teamReveal") return s.place === "champion" ? "teamChampion" : "runnerUp";
+  if (s.kind === "predReveal") return s.place === "champion" ? "champion" : "runnerUp";
+  if (s.kind === "customReveal") return "funny";
+  return "champion";
+}
 
 export function CeremonyDeck({ data }: { data: CeremonyData }) {
   const slides = useMemo<Slide[]>(() => {
@@ -58,6 +69,7 @@ export function CeremonyDeck({ data }: { data: CeremonyData }) {
       out.push({ kind: "teamPresenter", place });
       out.push({ kind: "teamReveal", team, place });
     }
+    for (const award of data.customAwards) out.push({ kind: "customReveal", award });
     out.push({ kind: "closing" });
     return out;
   }, [data]);
@@ -70,7 +82,7 @@ export function CeremonyDeck({ data }: { data: CeremonyData }) {
   const [controlsVisible, setControlsVisible] = useState(true);
   const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const sound = useCeremonySound();
+  const sound = useCeremonySound(data.sound);
 
   const slide = slides[index];
   const isReveal = isRevealSlide(slide);
@@ -106,7 +118,7 @@ export function CeremonyDeck({ data }: { data: CeremonyData }) {
     if (reduce) {
       setPhase("shown");
       celebrate(champion);
-      sound.playImpact();
+      sound.playReveal(cueForSlide(slide));
       sound.playApplause();
       return;
     }
@@ -127,7 +139,7 @@ export function CeremonyDeck({ data }: { data: CeremonyData }) {
         setCount(null);
         setPhase("shown");
         sound.stopRoll();
-        sound.playImpact();
+        sound.playReveal(cueForSlide(slide));
         celebrate(champion);
         timers.current.push(setTimeout(() => sound.playApplause(), 250));
       }, 3 * step + suspense)
@@ -141,7 +153,7 @@ export function CeremonyDeck({ data }: { data: CeremonyData }) {
     setPhase((p) => {
       if (p === "counting") {
         celebrate(isChampionReveal(slide));
-        sound.playImpact();
+        sound.playReveal(cueForSlide(slide));
       }
       return "shown";
     });
@@ -447,6 +459,11 @@ function SlideBody({
             {data.tournamentName}
           </h1>
           <p className="mt-3 text-4xl font-bold text-white/80 sm:text-6xl">Awards Day</p>
+          {data.speeches.opening && (
+            <p className="mx-auto mt-6 max-w-2xl text-lg text-white/70 sm:text-2xl">
+              {data.speeches.opening}
+            </p>
+          )}
           <motion.p
             animate={{ opacity: [0.4, 1, 0.4] }}
             transition={{ repeat: Infinity, duration: 2 }}
@@ -556,10 +573,20 @@ function SlideBody({
     }
 
     case "presenter":
-      return <PresenterSlide context={`${slide.award.sport} · ${slide.award.category}`} />;
+      return (
+        <PresenterSlide
+          context={`${slide.award.sport} · ${slide.award.category}`}
+          presenter={slide.award.presenter ?? undefined}
+        />
+      );
 
     case "teamPresenter":
-      return <PresenterSlide context="the Team Awards" />;
+      return (
+        <PresenterSlide
+          context="the Team Awards"
+          presenter={data.teamPresenters[slide.place] ?? undefined}
+        />
+      );
 
     case "reveal": {
       const a = slide.award;
@@ -581,8 +608,35 @@ function SlideBody({
             teamName={winner.teamName}
             teamColor={winner.teamColor}
             score={isChamp ? a.score : null}
-            subtitle={isChamp && a.isUpset ? "Upset victory 💥" : null}
+            subtitle={a.description || (isChamp && a.isUpset ? "Upset victory 💥" : null)}
           />
+        </RevealShell>
+      );
+    }
+
+    case "customReveal": {
+      const a = slide.award;
+      return (
+        <RevealShell
+          chip={<>{a.emoji} Special Award</>}
+          phase={phase}
+          count={count}
+          champion={champion}
+          message="And it goes to…"
+          onReveal={onReveal}
+          cta={`Reveal ${a.title} ${a.emoji}`}
+        >
+          <div className="text-center">
+            <p className="mb-4 text-2xl font-bold uppercase tracking-[0.2em] text-white/60 sm:text-3xl">
+              {a.emoji} {a.title}
+            </p>
+            <HeroWinner
+              place="champion"
+              name={a.winner}
+              teamName={a.team ?? null}
+              subtitle={a.subtitle ?? null}
+            />
+          </div>
         </RevealShell>
       );
     }
@@ -663,7 +717,11 @@ function SlideBody({
             Thank You, Everyone
           </h1>
           <p className="mt-6 text-3xl font-bold text-white/80 sm:text-4xl">{data.tournamentName}</p>
-          <p className="mt-8 text-xl text-white/60 sm:text-2xl">See you next year ❤️</p>
+          {data.speeches.closing ? (
+            <p className="mx-auto mt-6 max-w-2xl text-xl text-white/70 sm:text-2xl">{data.speeches.closing}</p>
+          ) : (
+            <p className="mt-8 text-xl text-white/60 sm:text-2xl">See you next year ❤️</p>
+          )}
         </div>
       );
   }
