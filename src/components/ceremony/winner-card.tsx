@@ -5,68 +5,140 @@ import { Trophy, Medal } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
+export type Place = "champion" | "runnerUp" | "third";
+
+const META: Record<
+  Place,
+  { label: string; medal: string; ring: string; glow: string; accent: string }
+> = {
+  champion: {
+    label: "Champion",
+    medal: "🥇",
+    ring: "ring-amber-400/70",
+    glow: "shadow-[0_0_120px_-20px] shadow-amber-400/60",
+    accent: "from-amber-300 to-yellow-500",
+  },
+  runnerUp: {
+    label: "Runner-up",
+    medal: "🥈",
+    ring: "ring-slate-300/60",
+    glow: "shadow-[0_0_80px_-24px] shadow-slate-300/40",
+    accent: "from-slate-200 to-slate-400",
+  },
+  third: {
+    label: "Third place",
+    medal: "🥉",
+    ring: "ring-orange-400/60",
+    glow: "shadow-[0_0_80px_-24px] shadow-orange-400/40",
+    accent: "from-orange-300 to-amber-600",
+  },
+};
+
 /**
- * Premium winner card. Photo-free by design: a large coloured-initials avatar
- * (there are no player photos in the system), team colour, name, category and
- * a champion / runner-up badge. Animated entrance.
+ * A single winner shown large and centred — one per slide now, so each finalist
+ * gets their own moment. The champion variant adds a gold spotlight, a stronger
+ * glow and an animated badge. Photo-free: a big coloured-initials avatar.
  */
-export function WinnerCard({
+export function HeroWinner({
   place,
   name,
-  subtitle,
   teamName,
   teamColor,
+  subtitle,
   score,
-  delay = 0,
 }: {
-  place: "champion" | "runnerUp" | "third";
+  place: Place;
   name: string;
-  subtitle?: string;
   teamName?: string | null;
   teamColor?: string | null;
+  subtitle?: string | null;
   score?: string | null;
-  delay?: number;
 }) {
-  const meta = {
-    champion: { label: "Champion", ring: "ring-amber-400/60", glow: "shadow-[0_0_60px_-12px] shadow-amber-400/50", icon: <Trophy className="h-6 w-6 text-amber-400" />, medal: "🥇" },
-    runnerUp: { label: "Runner-up", ring: "ring-slate-300/50", glow: "shadow-[0_0_50px_-16px] shadow-slate-300/40", icon: <Medal className="h-6 w-6 text-slate-300" />, medal: "🥈" },
-    third: { label: "Third place", ring: "ring-orange-400/50", glow: "shadow-[0_0_50px_-16px] shadow-orange-400/40", icon: <Medal className="h-6 w-6 text-orange-400" />, medal: "🥉" },
-  }[place];
+  const meta = META[place];
+  const isChampion = place === "champion";
 
   return (
-    <motion.div
-      initial={{ opacity: 0, scale: 0.8, y: 24 }}
-      animate={{ opacity: 1, scale: 1, y: 0 }}
-      transition={{ type: "spring", stiffness: 220, damping: 20, delay }}
-      className={cn(
-        "relative flex flex-col items-center gap-4 rounded-3xl border border-white/10 bg-white/5 p-6 backdrop-blur-xl sm:p-8",
-        "ring-2",
-        meta.ring,
-        meta.glow
+    <div className="relative flex flex-col items-center">
+      {isChampion && (
+        <>
+          {/* gold spotlight cone */}
+          <motion.div
+            aria-hidden
+            initial={{ opacity: 0, scaleY: 0.6 }}
+            animate={{ opacity: 1, scaleY: 1 }}
+            transition={{ duration: 0.6 }}
+            className="pointer-events-none absolute -top-24 h-[130%] w-[70%] origin-top bg-gradient-to-b from-amber-300/25 via-amber-300/5 to-transparent blur-2xl"
+          />
+        </>
       )}
-    >
-      <div className="absolute -top-4 left-1/2 -translate-x-1/2 text-3xl">{meta.medal}</div>
-      <Avatar
-        name={name}
-        color={teamColor ?? undefined}
-        className="h-24 w-24 text-3xl sm:h-32 sm:w-32 sm:text-4xl"
-      />
-      <div className="text-center">
-        <p className="flex items-center justify-center gap-2 text-2xl font-extrabold tracking-tight text-white sm:text-4xl">
-          {name}
-        </p>
-        {teamName && (
-          <p className="mt-1 flex items-center justify-center gap-1.5 text-sm font-medium sm:text-base" style={{ color: teamColor ?? undefined }}>
-            <span className="h-2.5 w-2.5 rounded-full" style={{ backgroundColor: teamColor ?? "currentColor" }} />
-            {teamName}
-          </p>
-        )}
-        {subtitle && <p className="mt-1 text-xs text-white/50 sm:text-sm">{subtitle}</p>}
-      </div>
-      <div className="flex items-center gap-2 rounded-full bg-white/10 px-4 py-1.5 text-sm font-semibold text-white">
-        {meta.icon} {meta.label}
-        {score && <span className="ml-1 font-mono text-xs text-white/60">· {score}</span>}
-      </div>
-    </motion.div>
+
+      <motion.div
+        initial={{ opacity: 0, scale: 0.7, y: 30 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ type: "spring", stiffness: 200, damping: 18 }}
+        className="relative flex flex-col items-center gap-5"
+      >
+        {/* medal badge */}
+        <motion.div
+          initial={{ scale: 0, rotate: -30 }}
+          animate={{ scale: 1, rotate: 0 }}
+          transition={{ type: "spring", stiffness: 260, damping: 14, delay: 0.15 }}
+          className="text-5xl sm:text-6xl"
+        >
+          {meta.medal}
+        </motion.div>
+
+        <Avatar
+          name={name}
+          color={teamColor ?? undefined}
+          className={cn(
+            "ring-4",
+            meta.ring,
+            meta.glow,
+            isChampion
+              ? "h-44 w-44 text-6xl sm:h-56 sm:w-56 sm:text-7xl"
+              : "h-36 w-36 text-5xl sm:h-44 sm:w-44 sm:text-6xl"
+          )}
+        />
+
+        <div className="text-center">
+          <h3
+            className={cn(
+              "font-black leading-tight tracking-tight text-white",
+              isChampion ? "text-6xl sm:text-8xl" : "text-5xl sm:text-7xl"
+            )}
+          >
+            {name}
+          </h3>
+          {teamName && (
+            <p
+              className="mt-2 flex items-center justify-center gap-2 text-xl font-semibold sm:text-2xl"
+              style={{ color: teamColor ?? undefined }}
+            >
+              <span
+                className="h-3 w-3 rounded-full"
+                style={{ backgroundColor: teamColor ?? "currentColor" }}
+              />
+              {teamName}
+            </p>
+          )}
+          {subtitle && (
+            <p className="mt-2 text-base text-white/60 sm:text-xl">{subtitle}</p>
+          )}
+        </div>
+
+        <div
+          className={cn(
+            "flex items-center gap-2 rounded-full px-6 py-2.5 text-lg font-bold sm:text-xl",
+            "bg-gradient-to-r text-black",
+            meta.accent
+          )}
+        >
+          {isChampion ? <Trophy className="h-6 w-6" /> : <Medal className="h-6 w-6" />}
+          {meta.label}
+          {score && <span className="font-mono text-sm opacity-70">· {score}</span>}
+        </div>
+      </motion.div>
+    </div>
   );
 }
