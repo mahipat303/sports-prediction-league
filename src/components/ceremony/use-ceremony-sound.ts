@@ -22,18 +22,32 @@ export type SoundStyle = "classic" | "fun";
  * requires a user gesture first — the presenter pressing Space counts). Mute
  * and style both persist in localStorage.
  */
-export function useCeremonySound() {
-  const [muted, setMuted] = useState(false);
-  const [style, setStyle] = useState<SoundStyle>("classic");
+export function useCeremonySound(config?: {
+  enabled?: boolean;
+  style?: SoundStyle;
+  /** cue name -> hosted audio URL; when present it plays instead of the synth. */
+  urls?: Record<string, string>;
+}) {
+  // Admin config provides the defaults; the presenter's own live toggles
+  // (persisted in localStorage) override them when present.
+  const [muted, setMuted] = useState(config?.enabled === false);
+  const [style, setStyle] = useState<SoundStyle>(config?.style ?? "classic");
   const ctxRef = useRef<AudioContext | null>(null);
   const rollRef = useRef<{ stop: () => void } | null>(null);
+  const urlsRef = useRef<Record<string, string>>(config?.urls ?? {});
+  const configUrls = config?.urls;
+  useEffect(() => {
+    urlsRef.current = configUrls ?? {};
+  }, [configUrls]);
 
   useEffect(() => {
     // Deferred so the state reads don't run synchronously inside the effect.
     const raf = requestAnimationFrame(() => {
       try {
-        setMuted(localStorage.getItem(STORAGE_KEY) === "1");
-        if (localStorage.getItem(STYLE_KEY) === "fun") setStyle("fun");
+        const m = localStorage.getItem(STORAGE_KEY);
+        if (m !== null) setMuted(m === "1");
+        const s = localStorage.getItem(STYLE_KEY);
+        if (s === "fun" || s === "classic") setStyle(s);
       } catch {
         /* ignore */
       }
@@ -212,9 +226,30 @@ export function useCeremonySound() {
     src.stop(t + dur);
   }, [ctx]);
 
+  // The reveal cue for a given moment. If the admin configured a custom audio
+  // URL for this cue it plays that file; otherwise the synth impact.
+  const playReveal = useCallback(
+    (cue: string) => {
+      const url = urlsRef.current[cue];
+      if (url) {
+        if (muted) return;
+        try {
+          const audio = new Audio(url);
+          audio.volume = 0.9;
+          audio.play().catch(() => {});
+        } catch {
+          /* fall back silently */
+        }
+        return;
+      }
+      playImpact();
+    },
+    [muted, playImpact]
+  );
+
   return {
     muted, toggleMuted,
     style, cycleStyle,
-    playTick, startRoll, stopRoll, playImpact, playApplause,
+    playTick, startRoll, stopRoll, playImpact, playApplause, playReveal,
   };
 }
