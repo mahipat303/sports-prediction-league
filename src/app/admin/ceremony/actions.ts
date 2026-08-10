@@ -39,6 +39,25 @@ export async function saveAward(formData: FormData) {
   });
 }
 
+/**
+ * Presentation-only winner override for a category award. Sets or clears the
+ * displayed champion / runner-up for Awards Day. Never touches the fixture,
+ * result or any derived data — it only writes the ceremony config row.
+ */
+export async function setAwardWinner(formData: FormData) {
+  const id = str(formData, "awardId");
+  const which = str(formData, "which"); // "champion" | "runnerUp"
+  const value = str(formData, "value"); // empty string = reset to auto
+  if (!id || (which !== "champion" && which !== "runnerUp")) return;
+  await mutate((c) => {
+    const entry = { ...(c.winners[id] ?? {}) };
+    if (value) entry[which] = value.slice(0, 80);
+    else delete entry[which];
+    if (entry.champion || entry.runnerUp) c.winners[id] = entry;
+    else delete c.winners[id];
+  });
+}
+
 /** Move an award one place earlier/later in the ceremony order. */
 export async function moveAward(formData: FormData) {
   const id = str(formData, "awardId");

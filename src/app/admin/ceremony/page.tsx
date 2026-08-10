@@ -4,13 +4,14 @@ import { auth } from "@/lib/auth";
 import { getCeremonyAdminAwards } from "@/lib/ceremony";
 import { getCeremonyConfig, SOUND_CUES } from "@/lib/ceremony-config";
 import {
-  saveAward, moveAward, saveCeremonySettings, addCustomAward, removeCustomAward, resetCeremonyConfig,
+  saveAward, setAwardWinner, moveAward, saveCeremonySettings, addCustomAward, removeCustomAward, resetCeremonyConfig,
 } from "./actions";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Select } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
+import { SearchableSelect } from "@/components/searchable-select";
 
 export const dynamic = "force-dynamic";
 
@@ -21,6 +22,51 @@ const CUE_LABEL: Record<string, string> = {
   funny: "Funny / Special",
   luckyDraw: "Lucky Draw",
 };
+
+/** Edit the displayed champion / runner-up for one award (presentation only). */
+function WinnerEditor({
+  awardId, which, medal, label, current, overridden, auto, options,
+}: {
+  awardId: string;
+  which: "champion" | "runnerUp";
+  medal: string;
+  label: string;
+  current: string;
+  overridden: boolean;
+  auto: string;
+  options: string[];
+}) {
+  return (
+    <div className="rounded-lg border border-border/50 bg-card/40 p-2">
+      <div className="mb-1 flex items-center gap-2 text-xs">
+        <span className="font-medium">{medal} {label}:</span>
+        <span className="text-foreground">{current}</span>
+        {overridden && <Badge variant="secondary" className="text-[10px]">✏️ Overridden</Badge>}
+      </div>
+      <form action={setAwardWinner} className="flex items-center gap-1.5">
+        <input type="hidden" name="awardId" value={awardId} />
+        <input type="hidden" name="which" value={which} />
+        <SearchableSelect
+          name="value"
+          options={options.map((o) => ({ value: o, label: o }))}
+          defaultValue={overridden ? current : ""}
+          className="h-8 flex-1"
+        />
+        <Button type="submit" size="sm" variant="outline">Save</Button>
+      </form>
+      {overridden && (
+        <form action={setAwardWinner} className="mt-1">
+          <input type="hidden" name="awardId" value={awardId} />
+          <input type="hidden" name="which" value={which} />
+          <input type="hidden" name="value" value="" />
+          <button type="submit" className="text-[11px] text-primary hover:underline">
+            ↺ Reset to auto ({auto})
+          </button>
+        </form>
+      )}
+    </div>
+  );
+}
 
 export default async function CeremonyAdminPage() {
   // Defence-in-depth beyond the admin layout guard.
@@ -72,9 +118,35 @@ export default async function CeremonyAdminPage() {
                 </div>
                 <Badge variant="secondary">{a.sportIcon} {a.sport}</Badge>
                 <span className="text-sm font-medium">{a.category}</span>
-                <span className="text-xs text-muted-foreground">🥇 {a.champion}</span>
                 {a.hidden && <Badge variant="warning">Hidden</Badge>}
               </div>
+
+              {/* Winner overrides (presentation only) */}
+              <div className="mt-2 grid gap-2 sm:grid-cols-2">
+                <WinnerEditor
+                  awardId={a.id}
+                  which="champion"
+                  medal="🥇"
+                  label="Champion"
+                  current={a.champion}
+                  overridden={a.championOverridden}
+                  auto={a.autoChampion}
+                  options={a.options}
+                />
+                {a.autoRunnerUp && (
+                  <WinnerEditor
+                    awardId={a.id}
+                    which="runnerUp"
+                    medal="🥈"
+                    label="Runner-up"
+                    current={a.runnerUp ?? "—"}
+                    overridden={a.runnerUpOverridden}
+                    auto={a.autoRunnerUp}
+                    options={a.options}
+                  />
+                )}
+              </div>
+
               <form action={saveAward} className="mt-2 flex flex-wrap items-center gap-2">
                 <input type="hidden" name="awardId" value={a.id} />
                 <Input name="presenter" placeholder="Presenter name (optional)" defaultValue={a.presenter} className="h-8 w-52" />
