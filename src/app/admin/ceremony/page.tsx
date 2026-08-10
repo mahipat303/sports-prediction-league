@@ -50,6 +50,8 @@ function WinnerEditor({
           name="value"
           options={options.map((o) => ({ value: o, label: o }))}
           defaultValue={overridden ? current : ""}
+          allowCustom
+          placeholder="Pick or type a name…"
           className="h-8 flex-1"
         />
         <Button type="submit" size="sm" variant="outline">Save</Button>

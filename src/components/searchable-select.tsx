@@ -12,7 +12,12 @@ export interface SelectOption {
 /**
  * Lightweight searchable combobox (no dependencies). Writes the chosen option's
  * value into a hidden input so it drops into existing forms/server actions
- * unchanged. Selection is limited to the provided options.
+ * unchanged.
+ *
+ * By default selection is limited to the provided options. Pass `allowCustom`
+ * to also let the admin type a free value that isn't in the list (offered as a
+ * "Use …" entry) — used where the value can be anything (e.g. a winner name),
+ * but kept opt-in so restricted pickers (placeholder resolution) are unchanged.
  */
 export function SearchableSelect({
   name,
@@ -20,12 +25,14 @@ export function SearchableSelect({
   defaultValue = "",
   placeholder = "Search…",
   className,
+  allowCustom = false,
 }: {
   name: string;
   options: SelectOption[];
   defaultValue?: string;
   placeholder?: string;
   className?: string;
+  allowCustom?: boolean;
 }) {
   const [value, setValue] = useState(defaultValue);
   const [query, setQuery] = useState("");
@@ -77,7 +84,26 @@ export function SearchableSelect({
             className="w-full border-b border-border/60 bg-transparent px-3 py-2 text-sm outline-none"
           />
           <ul className="max-h-56 overflow-y-auto py-1">
-            {filtered.length === 0 && (
+            {/* Free-text entry when the typed value isn't already an option. */}
+            {allowCustom && query.trim() && !options.some((o) => o.value === query.trim()) && (
+              <li>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setValue(query.trim());
+                    setOpen(false);
+                    setQuery("");
+                  }}
+                  className="flex w-full items-center gap-2 px-3 py-1.5 text-left text-sm hover:bg-accent"
+                >
+                  <Check className="h-3.5 w-3.5 shrink-0 opacity-0" />
+                  <span className="truncate">
+                    Use “<span className="font-medium">{query.trim()}</span>”
+                  </span>
+                </button>
+              </li>
+            )}
+            {filtered.length === 0 && !(allowCustom && query.trim()) && (
               <li className="px-3 py-2 text-xs text-muted-foreground">No matches</li>
             )}
             {filtered.map((o) => (
