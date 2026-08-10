@@ -117,7 +117,17 @@ export interface AdminAward {
   sport: string;
   sportIcon: string | null;
   category: string;
+  /** Auto-calculated winner from the result. */
+  autoChampion: string;
+  autoRunnerUp: string | null;
+  /** Current display value (override if set, else auto). */
   champion: string;
+  runnerUp: string | null;
+  /** True when an admin override is in effect. */
+  championOverridden: boolean;
+  runnerUpOverridden: boolean;
+  /** Dropdown options: the two finalists first, then every player. */
+  options: string[];
   hidden: boolean;
   presenter: string;
   description: string;
@@ -129,27 +139,49 @@ export interface AdminAward {
  * currently-configured order so the reorder controls act on what's shown.
  */
 export async function getCeremonyAdminAwards(): Promise<AdminAward[]> {
-  const [finals, config] = await Promise.all([
+  const [finals, players, config] = await Promise.all([
     prisma.fixture.findMany({
       where: { stage: "Grand Final", status: "COMPLETED" },
       include: { sport: true },
       orderBy: [{ sport: { name: "asc" } }, { matchCategory: "asc" }],
     }),
+    prisma.player.findMany({ select: { name: true }, orderBy: { name: "asc" } }),
     getCeremonyConfig(),
   ]);
+  const playerNames = players.map((p) => p.name);
   const hidden = new Set(config.hidden);
   const rank = new Map(config.order.map((id, i) => [id, i]));
   return finals
-    .map((f) => ({
-      id: f.id,
-      sport: f.sport.name,
-      sportIcon: f.sport.icon,
-      category: f.matchCategory,
-      champion: f.winnerSide === 1 ? f.side1Label : f.winnerSide === 2 ? f.side2Label : "—",
-      hidden: hidden.has(f.id),
-      presenter: config.presenters[f.id] ?? "",
-      description: config.descriptions[f.id] ?? "",
-    }))
+    .map((f) => {
+      const autoChampion =
+        f.winnerSide === 1 ? f.side1Label : f.winnerSide === 2 ? f.side2Label : "—";
+      const autoRunnerUp =
+        f.winnerSide === 1 ? f.side2Label : f.winnerSide === 2 ? f.side1Label : null;
+      const ov = config.winners[f.id] ?? {};
+      // Options: the two finalists first (dedup), then all players.
+      const seen = new Set<string>();
+      const options: string[] = [];
+      for (const label of [autoChampion, autoRunnerUp].filter((x): x is string => Boolean(x) && x !== "—")) {
+        if (!seen.has(label)) { seen.add(label); options.push(label); }
+      }
+      for (const n of playerNames) if (!seen.has(n)) { seen.add(n); options.push(n); }
+      return {
+        id: f.id,
+        sport: f.sport.name,
+        sportIcon: f.sport.icon,
+        category: f.matchCategory,
+        autoChampion,
+        autoRunnerUp,
+        champion: ov.champion || autoChampion,
+        runnerUp: ov.runnerUp || autoRunnerUp,
+        championOverridden: Boolean(ov.champion),
+        runnerUpOverridden: Boolean(ov.runnerUp),
+        options,
+        hidden: hidden.has(f.id),
+        presenter: config.presenters[f.id] ?? "",
+        description: config.descriptions[f.id] ?? "",
+      };
+    })
     .sort((a, b) => (rank.get(a.id) ?? Infinity) - (rank.get(b.id) ?? Infinity));
 }
 
@@ -250,19 +282,40 @@ export async function getCeremonyData(): Promise<CeremonyData> {
 
   // ---- category awards (one per Grand Final) ----------------------------
   const hidden = new Set(config.hidden);
-  const allCategoryAwards: CategoryAward[] = finals.map((f) => ({
-    id: f.id,
-    sport: f.sport.name,
-    sportIcon: f.sport.icon,
-    category: f.matchCategory,
-    stage: f.stage,
-    champion: sideWinner(f) ?? { label: "—", teamName: null, teamColor: null },
-    runnerUp: sideLoser(f),
-    score: f.scoreSummary,
-    isUpset: f.isUpset,
-    presenter: config.presenters[f.id] ?? null,
-    description: config.descriptions[f.id] ?? null,
-  }));
+
+  // Name → team, so an overridden winner shows their own team colour. Doubles
+  // labels ("A/B") won't match a single player and simply keep no team.
+  const teamByName = new Map<string, { teamName: string | null; teamColor: string | null }>();
+  for (const p of players) {
+    teamByName.set(p.name, { teamName: p.team?.name ?? null, teamColor: p.team?.color ?? null });
+  }
+  /**
+   * Presentation-only override. Replaces the displayed winner label (and
+   * resolves the picked player's team) WITHOUT touching the fixture, result or
+   * any derived stat. Falls back to the auto winner when unset.
+   */
+  const applyOverride = (name: string | undefined, auto: AwardWinner | null): AwardWinner | null => {
+    if (!name) return auto;
+    const team = teamByName.get(name);
+    return { label: name, teamName: team?.teamName ?? null, teamColor: team?.teamColor ?? null };
+  };
+
+  const allCategoryAwards: CategoryAward[] = finals.map((f) => {
+    const ov = config.winners[f.id] ?? {};
+    return {
+      id: f.id,
+      sport: f.sport.name,
+      sportIcon: f.sport.icon,
+      category: f.matchCategory,
+      stage: f.stage,
+      champion: applyOverride(ov.champion, sideWinner(f)) ?? { label: "—", teamName: null, teamColor: null },
+      runnerUp: applyOverride(ov.runnerUp, sideLoser(f)),
+      score: f.scoreSummary,
+      isUpset: f.isUpset,
+      presenter: config.presenters[f.id] ?? null,
+      description: config.descriptions[f.id] ?? null,
+    };
+  });
 
   // Apply the admin's hide + order choices: listed ids first in the given
   // order, everything else after in the default (sport/category) order.

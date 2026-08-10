@@ -40,6 +40,21 @@ export const ceremonyConfigSchema = z.object({
   presenters: z.record(z.string(), z.string().max(80)).default({}),
   /** Optional one-liner shown on a category's reveal, keyed by award id. */
   descriptions: z.record(z.string(), z.string().max(160)).default({}),
+  /**
+   * Presentation-only winner overrides, keyed by award id. A set value
+   * replaces the displayed champion / runner-up name for the Awards Day
+   * ceremony ONLY — it never touches the real match result, predictions,
+   * points, leaderboard, stats or progression. Unset → the auto winner is used.
+   */
+  winners: z
+    .record(
+      z.string(),
+      z.object({
+        champion: z.string().max(80).optional(),
+        runnerUp: z.string().max(80).optional(),
+      })
+    )
+    .default({}),
   speeches: z
     .object({ opening: z.string().max(400).optional(), closing: z.string().max(400).optional() })
     .default({}),
