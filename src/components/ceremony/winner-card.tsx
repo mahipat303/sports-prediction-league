@@ -5,7 +5,7 @@ import { Trophy, Medal } from "lucide-react";
 import { Avatar } from "@/components/ui/avatar";
 import { cn } from "@/lib/utils";
 
-export type Place = "champion" | "runnerUp" | "third";
+export type Place = "champion" | "runnerUp" | "third" | "winner";
 
 const META: Record<
   Place,
@@ -16,6 +16,13 @@ const META: Record<
     medal: "🥇",
     ring: "ring-amber-400/70",
     glow: "shadow-[0_0_120px_-20px] shadow-amber-400/60",
+    accent: "from-amber-300 to-yellow-500",
+  },
+  winner: {
+    label: "Winner",
+    medal: "🏅",
+    ring: "ring-amber-400/60",
+    glow: "shadow-[0_0_80px_-24px] shadow-amber-400/45",
     accent: "from-amber-300 to-yellow-500",
   },
   runnerUp: {
@@ -46,6 +53,8 @@ export function HeroWinner({
   teamColor,
   subtitle,
   score,
+  tag,
+  compact,
 }: {
   place: Place;
   name: string;
@@ -53,6 +62,10 @@ export function HeroWinner({
   teamColor?: string | null;
   subtitle?: string | null;
   score?: string | null;
+  /** Small label above the name, e.g. "Male" / "Female". */
+  tag?: string | null;
+  /** Slightly smaller — used when two winners share a slide. */
+  compact?: boolean;
 }) {
   const meta = META[place];
   const isChampion = place === "champion";
@@ -97,15 +110,22 @@ export function HeroWinner({
             meta.glow,
             isChampion
               ? "h-44 w-44 text-6xl sm:h-56 sm:w-56 sm:text-7xl"
-              : "h-36 w-36 text-5xl sm:h-44 sm:w-44 sm:text-6xl"
+              : compact
+                ? "h-28 w-28 text-4xl sm:h-36 sm:w-36 sm:text-5xl"
+                : "h-36 w-36 text-5xl sm:h-44 sm:w-44 sm:text-6xl"
           )}
         />
 
         <div className="text-center">
+          {tag && (
+            <p className="mb-1 text-sm font-semibold uppercase tracking-[0.25em] text-white/50 sm:text-base">
+              {tag}
+            </p>
+          )}
           <h3
             className={cn(
               "font-black leading-tight tracking-tight text-white",
-              isChampion ? "text-6xl sm:text-8xl" : "text-5xl sm:text-7xl"
+              isChampion ? "text-6xl sm:text-8xl" : compact ? "text-4xl sm:text-6xl" : "text-5xl sm:text-7xl"
             )}
           >
             {name}
