@@ -40,6 +40,17 @@ export const ceremonyConfigSchema = z.object({
   presenters: z.record(z.string(), z.string().max(80)).default({}),
   /** Optional one-liner shown on a category's reveal, keyed by award id. */
   descriptions: z.record(z.string(), z.string().max(160)).default({}),
+  /** Winner overrides for the curated program, keyed by program award id. */
+  programWinners: z
+    .record(
+      z.string(),
+      z.object({
+        male: z.string().max(80).optional(),
+        female: z.string().max(80).optional(),
+        winner: z.string().max(80).optional(),
+      })
+    )
+    .default({}),
   /**
    * Presentation-only winner overrides, keyed by award id. A set value
    * replaces the displayed champion / runner-up name for the Awards Day
