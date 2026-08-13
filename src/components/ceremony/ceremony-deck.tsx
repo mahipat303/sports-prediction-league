@@ -5,7 +5,7 @@ import { motion } from "framer-motion";
 import {
   ChevronLeft, ChevronRight, Sparkles, Maximize, PartyPopper, Volume2, VolumeX,
 } from "lucide-react";
-import type { CeremonyData } from "@/lib/ceremony";
+import type { CeremonyData, PredictionAward } from "@/lib/ceremony";
 import type { ProgramAward } from "@/lib/ceremony-program";
 import { Confetti } from "./confetti";
 import { Fireworks } from "./fireworks";
@@ -14,11 +14,14 @@ import { HeroWinner } from "./winner-card";
 import { useCeremonySound } from "./use-ceremony-sound";
 import { cn } from "@/lib/utils";
 
+type PredPlace = "champion" | "runnerUp" | "third";
+
 type Slide =
   | { kind: "opening" }
   | { kind: "sportsMonth" }
   | { kind: "presenter"; award: ProgramAward }
   | { kind: "reveal"; award: ProgramAward }
+  | { kind: "predReveal"; pred: PredictionAward; place: PredPlace }
   | { kind: "closing" };
 
 type Phase = "pre" | "counting" | "shown";
@@ -26,6 +29,7 @@ type Phase = "pre" | "counting" | "shown";
 const isChampionAward = (a: ProgramAward) => Boolean(a.champion);
 
 function cueForSlide(s: Slide): string {
+  if (s.kind === "predReveal") return s.place === "champion" ? "champion" : "runnerUp";
   if (s.kind !== "reveal") return "champion";
   if (s.award.champion) return "teamChampion";
   if (s.award.kind === "team") return "runnerUp";
@@ -46,6 +50,15 @@ export function CeremonyDeck({ data }: { data: CeremonyData }) {
       out.push({ kind: "presenter", award });
       out.push({ kind: "reveal", award });
     }
+    // Prediction League top three — revealed last, 3rd → 2nd → 1st.
+    const podium = data.predictionAwards.slice(0, 3);
+    for (const pred of [...podium].reverse()) {
+      out.push({
+        kind: "predReveal",
+        pred,
+        place: pred.rank === 1 ? "champion" : pred.rank === 2 ? "runnerUp" : "third",
+      });
+    }
     out.push({ kind: "closing" });
     return out;
   }, [data]);
@@ -61,8 +74,10 @@ export function CeremonyDeck({ data }: { data: CeremonyData }) {
   const sound = useCeremonySound(data.sound);
 
   const slide = slides[index];
-  const isReveal = slide.kind === "reveal";
-  const champion = slide.kind === "reveal" && isChampionAward(slide.award);
+  const isReveal = slide.kind === "reveal" || slide.kind === "predReveal";
+  const champion =
+    (slide.kind === "reveal" && isChampionAward(slide.award)) ||
+    (slide.kind === "predReveal" && slide.place === "champion");
 
   const clearTimers = () => {
     timers.current.forEach(clearTimeout);
@@ -370,6 +385,41 @@ function SlideBody({
             />
           ) : (
             <HeroWinner place="winner" name={a.winner ?? "—"} />
+          )}
+        </div>
+      );
+    }
+
+    case "predReveal": {
+      const p = slide.pred;
+      const place = slide.place;
+      const msg =
+        place === "champion" ? "And the Prediction Champion is…"
+        : place === "runnerUp" ? "Our Runner-up is…"
+        : "In third place…";
+      return (
+        <div className="flex w-full flex-col items-center text-center">
+          <Chip>🎯 Prediction League</Chip>
+          {phase !== "shown" ? (
+            <div className="flex flex-col items-center">
+              <Drumroll count={count} champion={champion} message={msg} />
+              {phase === "pre" && (
+                <button
+                  onClick={onReveal}
+                  className="mt-6 rounded-full bg-white px-10 py-4 text-xl font-bold text-black transition-transform hover:scale-105"
+                >
+                  {place === "champion" ? "Reveal the Prediction Champion 🏆"
+                    : place === "runnerUp" ? "Reveal the Runner-up 🥈"
+                    : "Reveal Third Place 🥉"}
+                </button>
+              )}
+            </div>
+          ) : (
+            <HeroWinner
+              place={place}
+              name={p.name}
+              subtitle={`${p.totalPoints} pts · ${p.accuracy}% accuracy`}
+            />
           )}
         </div>
       );
