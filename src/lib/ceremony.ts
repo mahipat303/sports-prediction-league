@@ -1,4 +1,6 @@
 import { prisma } from "@/lib/prisma";
+import { accuracy } from "@/lib/utils";
+import { LEADERBOARD_ORDER } from "@/lib/scoring";
 import { getCeremonyConfig, type SoundCue } from "@/lib/ceremony-config";
 import { getCeremonyProgram, type ProgramAward } from "@/lib/ceremony-program";
 
@@ -18,8 +20,16 @@ export interface CeremonySound {
   urls: Partial<Record<SoundCue, string>>;
 }
 
+export interface PredictionAward {
+  rank: number;
+  name: string;
+  totalPoints: number;
+  accuracy: number;
+}
+
 export interface CeremonyData {
   program: ProgramAward[];
+  predictionAwards: PredictionAward[];
   speeches: { opening: string | null; closing: string | null };
   sound: CeremonySound;
   tournamentName: string;
@@ -27,14 +37,27 @@ export interface CeremonyData {
 }
 
 export async function getCeremonyData(): Promise<CeremonyData> {
-  const [tournament, config, program] = await Promise.all([
+  const [tournament, config, program, entries] = await Promise.all([
     prisma.tournament.findFirst({ where: { isActive: true } }),
     getCeremonyConfig(),
     getCeremonyProgram(),
+    prisma.leaderboardEntry.findMany({ include: { user: true }, orderBy: LEADERBOARD_ORDER }),
   ]);
+
+  // Top three predictors — the closing highlight of the night.
+  const predictionAwards: PredictionAward[] = entries
+    .filter((e) => e.correctPredictions + e.wrongPredictions >= 1)
+    .slice(0, 3)
+    .map((e, i) => ({
+      rank: i + 1,
+      name: e.user.name ?? "—",
+      totalPoints: Math.round(e.totalPoints),
+      accuracy: accuracy(e.correctPredictions, e.wrongPredictions),
+    }));
 
   return {
     program,
+    predictionAwards,
     speeches: {
       opening: config.speeches.opening ?? null,
       closing: config.speeches.closing ?? null,
