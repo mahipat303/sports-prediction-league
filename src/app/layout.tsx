@@ -5,6 +5,7 @@ import { auth } from "@/lib/auth";
 import { getSettings, rulesValuesFrom } from "@/lib/scoring";
 import { Navbar } from "@/components/navbar";
 import { WelcomePopup } from "@/components/welcome-popup";
+import { SportsDayOverBanner } from "@/components/sports-day-over-banner";
 import { RulesButton } from "@/components/rules-button";
 import { OpsHubLogo } from "@/components/opshub-logo";
 import "./globals.css";
@@ -49,6 +50,7 @@ export default async function RootLayout({
           {session?.user && <WelcomePopup name={session.user.name ?? ""} />}
           <Navbar session={session} />
           <main className="mx-auto w-full max-w-6xl flex-1 px-4 py-6 sm:px-6">
+            <SportsDayOverBanner />
             {children}
           </main>
           <footer className="border-t border-border/50 py-6">
